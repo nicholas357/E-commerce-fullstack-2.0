@@ -65,8 +65,8 @@
     "@supabase/auth-helpers-nextjs": "latest",
     "https:": "latest",
     "uuid": "latest",
-    "@supabase/ssr": "latest",
-    "js-cookie": "latest"
+    "js-cookie": "latest",
+    "@supabase/ssr": "latest"
   },
   "devDependencies": {
     "@types/node": "^22",

@@ -18,5 +18,5 @@ export function getClientClient() {
   return supabaseClient
 }
 
-// Add the missing export as an alias to the existing function
+// Add the missing export with the expected name
 export const getSupabaseClient = getClientClient

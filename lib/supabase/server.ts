@@ -26,5 +26,5 @@ export function createClient() {
   })
 }
 
-// Add the missing export as an alias to the imported function
-export { createSupabaseServerClient as createServerClient }
+// Add the missing export with the expected name
+export const createServerClient = createClient
