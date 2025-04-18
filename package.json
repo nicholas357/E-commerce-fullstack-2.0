@@ -63,6 +63,7 @@
     "framer-motion": "latest",
     "firebase": "latest",
     "@supabase/auth-helpers-nextjs": "latest",
+    "https:": "latest",
     "uuid": "latest",
     "js-cookie": "latest",
     "@supabase/ssr": "latest"
