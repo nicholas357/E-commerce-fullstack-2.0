@@ -1,39 +1,34 @@
 import Cookies from "js-cookie"
 
-// Default cookie options
-const DEFAULT_OPTIONS = {
-  expires: 30, // 30 days
-  path: "/",
-  secure: process.env.NODE_ENV === "production",
-  sameSite: "lax" as const,
-}
+export const setCookie = (name: string, value: any, options?: Cookies.CookieAttributes) => {
+  const defaultOptions: Cookies.CookieAttributes = {
+    expires: 30, // 30 days
+    path: "/",
+    secure: process.env.NODE_ENV === "production",
+    sameSite: "lax",
+  }
 
-/**
- * Set a cookie with the given name and value
- */
-export function setCookie(name: string, value: any, options = {}) {
-  const stringValue = typeof value === "object" ? JSON.stringify(value) : String(value)
-  return Cookies.set(name, stringValue, { ...DEFAULT_OPTIONS, ...options })
-}
+  const cookieOptions = { ...defaultOptions, ...options }
 
-/**
- * Get a cookie by name
- */
-export function getCookie(name: string) {
-  const value = Cookies.get(name)
-  if (!value) return null
-
-  // Try to parse as JSON, if it fails return the string value
-  try {
-    return JSON.parse(value)
-  } catch (error) {
-    return value
+  if (typeof value === "object") {
+    Cookies.set(name, JSON.stringify(value), cookieOptions)
+  } else {
+    Cookies.set(name, value, cookieOptions)
   }
 }
 
-/**
- * Remove a cookie by name
- */
-export function removeCookie(name: string, options = {}) {
-  return Cookies.remove(name, { ...options, path: "/" })
+export const getCookie = (name: string) => {
+  const cookieValue = Cookies.get(name)
+
+  if (!cookieValue) return null
+
+  try {
+    return JSON.parse(cookieValue)
+  } catch (e) {
+    return cookieValue
+  }
+}
+
+export const removeCookie = (name: string) => {
+  Cookies.remove(name, { path: "/" })
 }
