@@ -1,6 +1,5 @@
+import { type NextRequest, NextResponse } from "next/server"
 import { createMiddlewareClient } from "@supabase/auth-helpers-nextjs"
-import { NextResponse } from "next/server"
-import type { NextRequest } from "next/server"
 
 export async function middleware(req: NextRequest) {
   const res = NextResponse.next()
@@ -31,7 +30,6 @@ export async function middleware(req: NextRequest) {
   }
 
   // Handle category slug redirects for old URLs
-  // This is a simplified example - in a real app, you might want to check against a database of old slugs
   if (req.nextUrl.pathname.startsWith("/xbox-games")) {
     return NextResponse.redirect(new URL("/category/games/xbox-games", req.url))
   }
@@ -51,9 +49,6 @@ export async function middleware(req: NextRequest) {
   if (req.nextUrl.pathname.startsWith("/software")) {
     return NextResponse.redirect(new URL("/category/software", req.url))
   }
-
-  // For admin routes, we'll do a more thorough check in the layout component
-  // This is just a first layer of protection
 
   return res
 }
