@@ -15,17 +15,17 @@ export default function LoginPage() {
   const [isSubmitting, setIsSubmitting] = useState(false);
   const [formError, setFormError] = useState("");
 
-  const { signIn, user } = useAuth();
+  const { signIn, user, isLoading } = useAuth();
   const router = useRouter();
   const params = useSearchParams();
   const redirectTo = params.get("redirectTo") ?? "/account";
 
-  // If already logged in, go straight to redirectTo
+  // ✅ Wait for user to be loaded before redirecting
   useEffect(() => {
-    if (user) {
+    if (!isLoading && user) {
       router.push(redirectTo);
     }
-  }, [user, redirectTo, router]);
+  }, [user, isLoading, redirectTo, router]);
 
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
@@ -41,10 +41,8 @@ export default function LoginPage() {
       const { error } = await signIn(email, password);
       if (error) {
         setFormError(error);
-      } else {
-        // success → navigate immediately
-        router.push(redirectTo);
       }
+      // ✅ Don't redirect here — wait for `useEffect` to handle it after user is set
     } catch (err: any) {
       setFormError(err.message || "An error occurred during sign in");
     } finally {
@@ -67,7 +65,6 @@ export default function LoginPage() {
         )}
 
         <form onSubmit={handleSubmit} className="space-y-4">
-          {/* Email Field */}
           <div>
             <label htmlFor="email" className="mb-2 block text-sm font-medium text-gray-400">
               Email
@@ -88,7 +85,6 @@ export default function LoginPage() {
             </div>
           </div>
 
-          {/* Password Field */}
           <div>
             <label htmlFor="password" className="mb-2 block text-sm font-medium text-gray-400">
               Password
@@ -116,7 +112,6 @@ export default function LoginPage() {
             </div>
           </div>
 
-          {/* Links & Submit */}
           <div className="flex items-center justify-between">
             <div className="flex items-center">
               <input
@@ -145,7 +140,6 @@ export default function LoginPage() {
           </GamingButton>
         </form>
 
-        {/* OAuth & Signup */}
         <div className="mt-6">
           <div className="relative">
             <div className="absolute inset-0 flex items-center">
@@ -159,6 +153,7 @@ export default function LoginPage() {
             <GoogleLoginButton />
           </div>
         </div>
+
         <div className="mt-6 text-center text-sm text-gray-400">
           Don’t have an account?{" "}
           <Link href="/account/signup" className="font-medium text-amber-500 hover:text-amber-400">
