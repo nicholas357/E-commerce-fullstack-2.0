@@ -1,65 +1,56 @@
-"use client"
+"use client";
 
-import type React from "react"
-
-import { useState, useEffect } from "react"
-import Link from "next/link"
-import { useRouter } from "next/navigation"
-import { Eye, EyeOff, Mail, Lock } from "lucide-react"
-import { GamingButton } from "@/components/ui/gaming-button"
-import { GoogleLoginButton } from "@/components/google-login-button"
-import { useAuth } from "@/context/auth-context"
+import { useState, useEffect } from "react";
+import { useRouter, useSearchParams } from "next/navigation";
+import Link from "next/link";
+import { Eye, EyeOff, Mail, Lock } from "lucide-react";
+import { GamingButton } from "@/components/ui/gaming-button";
+import { GoogleLoginButton } from "@/components/google-login-button";
+import { useAuth } from "@/context/auth-context";
 
 export default function LoginPage() {
-  const [email, setEmail] = useState("")
-  const [password, setPassword] = useState("")
-  const [showPassword, setShowPassword] = useState(false)
-  const [isSubmitting, setIsSubmitting] = useState(false)
-  const [formError, setFormError] = useState("")
-  const { signIn, user } = useAuth()
-  const router = useRouter()
-  const [redirectPath, setRedirectPath] = useState("/account")
+  const [email, setEmail] = useState("");
+  const [password, setPassword] = useState("");
+  const [showPassword, setShowPassword] = useState(false);
+  const [isSubmitting, setIsSubmitting] = useState(false);
+  const [formError, setFormError] = useState("");
 
-  // Check if there's a redirect path in localStorage
-  useEffect(() => {
-    const storedRedirectPath = localStorage.getItem("redirectAfterLogin")
-    if (storedRedirectPath) {
-      setRedirectPath(storedRedirectPath)
-      localStorage.removeItem("redirectAfterLogin")
-    }
-  }, [])
+  const { signIn, user } = useAuth();
+  const router = useRouter();
+  const params = useSearchParams();
+  const redirectTo = params.get("redirectTo") ?? "/account";
 
-  // Redirect if already logged in
+  // If already logged in, go straight to redirectTo
   useEffect(() => {
     if (user) {
-      router.push(redirectPath)
+      router.push(redirectTo);
     }
-  }, [user, router, redirectPath])
+  }, [user, redirectTo, router]);
 
   const handleSubmit = async (e: React.FormEvent) => {
-    e.preventDefault()
-    setFormError("")
+    e.preventDefault();
+    setFormError("");
 
     if (!email || !password) {
-      setFormError("Please fill in all fields")
-      return
+      setFormError("Please fill in all fields");
+      return;
     }
 
-    setIsSubmitting(true)
-
+    setIsSubmitting(true);
     try {
-      const { error } = await signIn(email, password)
+      const { error } = await signIn(email, password);
       if (error) {
-        setFormError(error)
+        setFormError(error);
       } else {
-        // Successful login will redirect via the useEffect
+        // success → navigate immediately
+        router.push(redirectTo);
       }
-    } catch (error: any) {
-      setFormError(error.message || "An error occurred during sign in")
+    } catch (err: any) {
+      setFormError(err.message || "An error occurred during sign in");
     } finally {
-      setIsSubmitting(false)
+      setIsSubmitting(false);
     }
-  }
+  };
 
   return (
     <div className="mx-auto max-w-md px-4 py-8">
@@ -76,6 +67,7 @@ export default function LoginPage() {
         )}
 
         <form onSubmit={handleSubmit} className="space-y-4">
+          {/* Email Field */}
           <div>
             <label htmlFor="email" className="mb-2 block text-sm font-medium text-gray-400">
               Email
@@ -96,6 +88,7 @@ export default function LoginPage() {
             </div>
           </div>
 
+          {/* Password Field */}
           <div>
             <label htmlFor="password" className="mb-2 block text-sm font-medium text-gray-400">
               Password
@@ -123,6 +116,7 @@ export default function LoginPage() {
             </div>
           </div>
 
+          {/* Links & Submit */}
           <div className="flex items-center justify-between">
             <div className="flex items-center">
               <input
@@ -142,7 +136,7 @@ export default function LoginPage() {
           <GamingButton type="submit" variant="amber" className="w-full" disabled={isSubmitting}>
             {isSubmitting ? (
               <span className="flex items-center justify-center">
-                <span className="mr-2 h-4 w-4 animate-spin rounded-full border-2 border-white border-t-transparent"></span>
+                <span className="mr-2 h-4 w-4 animate-spin rounded-full border-2 border-white border-t-transparent" />
                 Signing in...
               </span>
             ) : (
@@ -151,28 +145,27 @@ export default function LoginPage() {
           </GamingButton>
         </form>
 
+        {/* OAuth & Signup */}
         <div className="mt-6">
           <div className="relative">
             <div className="absolute inset-0 flex items-center">
-              <div className="w-full border-t border-border"></div>
+              <div className="w-full border-t border-border" />
             </div>
             <div className="relative flex justify-center text-sm">
               <span className="bg-card px-2 text-gray-400">Or continue with</span>
             </div>
           </div>
-
           <div className="mt-6">
             <GoogleLoginButton />
           </div>
         </div>
-
         <div className="mt-6 text-center text-sm text-gray-400">
-          Don't have an account?{" "}
+          Don’t have an account?{" "}
           <Link href="/account/signup" className="font-medium text-amber-500 hover:text-amber-400">
             Sign up
           </Link>
         </div>
       </div>
     </div>
-  )
+  );
 }
