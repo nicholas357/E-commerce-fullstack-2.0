@@ -5,7 +5,7 @@ import { useState, useEffect } from "react"
 import { usePathname, useRouter } from "next/navigation"
 import Link from "next/link"
 import { motion } from "framer-motion"
-import { User, Package, Heart, CreditCard, Settings, LogOut, ChevronRight, Menu, X } from "lucide-react"
+import { User, Package, Heart, CreditCard, Settings, LogOut, Menu, X } from "lucide-react"
 import { GamingButton } from "@/components/ui/gaming-button"
 import { useToast } from "@/components/ui/toast-provider"
 import { useAuth } from "@/context/auth-context"
@@ -26,7 +26,7 @@ export default function AccountLayout({ children }: AccountLayoutProps) {
     setMobileNavOpen(false)
   }, [pathname])
 
-  // Check if the user is not logged in and redirect
+  // Redirect if not logged in
   useEffect(() => {
     if (!isLoading && !user) {
       const redirectUrl = `/account/login?redirectTo=${encodeURIComponent(pathname)}`
@@ -74,10 +74,12 @@ export default function AccountLayout({ children }: AccountLayoutProps) {
     return pathname.startsWith(href)
   }
 
+  // Handle loading state and unauthenticated user
   if (isLoading) {
-    return <div>Loading...</div> // You can show a loading spinner here
+    return <div>Loading...</div>
   }
 
+  // If user is not logged in, show the login page
   if (!user) {
     return (
       <motion.div
@@ -190,7 +192,6 @@ export default function AccountLayout({ children }: AccountLayoutProps) {
                 >
                   <item.icon className="mr-3 h-5 w-5" />
                   <span>{item.title}</span>
-                  {isActive(item.href, item.exact) && <ChevronRight className="ml-auto h-4 w-4" />}
                 </Link>
               ))}
             </nav>
