@@ -4,6 +4,7 @@ import { createContext, useContext, useState, useEffect, type ReactNode } from "
 import { useRouter } from "next/navigation"
 import { useToast } from "@/components/ui/toast-provider"
 import { createClient } from "@/lib/supabase/client"
+import { useSearchParams } from "next/navigation"
 
 // Define the User type
 type User = {
@@ -40,6 +41,10 @@ export function AuthProvider({ children }: { children: ReactNode }) {
   const { addToast } = useToast()
   const supabase = createClient()
 
+  // Get the redirectTo URL from query params (if any)
+  const searchParams = useSearchParams()
+  const redirectTo = searchParams?.get("redirectTo") || "/account" // Default fallback to "/account"
+
   // Check if the user is an admin
   const isAdmin = user?.role === "admin"
 
@@ -51,9 +56,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
         setError(null)
 
         // Get the current session
-        const {
-          data: { session },
-        } = await supabase.auth.getSession()
+        const { data: { session } } = await supabase.auth.getSession()
 
         if (session?.user) {
           console.log("Session found:", session.user.id)
@@ -76,7 +79,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
         }
       } catch (err) {
         console.error("Error checking user:", err)
-        setError(null)
+        setError("Error retrieving session.")
         setUser(null)
         setProfile(null)
       } finally {
@@ -87,9 +90,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     checkUser()
 
     // Set up auth state change listener
-    const {
-      data: { subscription },
-    } = supabase.auth.onAuthStateChange(async (event, session) => {
+    const { data: { subscription } } = supabase.auth.onAuthStateChange(async (event, session) => {
       console.log("Auth state changed:", event, session?.user?.id)
 
       if (session?.user) {
@@ -138,7 +139,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
 
       console.log("Sign in successful:", data.user?.id)
 
-      // Force refresh the session
+      // Force refresh the session after successful login
       const { data: sessionData } = await supabase.auth.getSession()
 
       if (sessionData.session?.user) {
@@ -158,6 +159,9 @@ export function AuthProvider({ children }: { children: ReactNode }) {
         })
 
         setProfile(profileData)
+
+        // Trigger redirect after successful login
+        router.push(redirectTo) // Redirect using the redirectTo URL
       }
 
       addToast({
@@ -209,11 +213,9 @@ export function AuthProvider({ children }: { children: ReactNode }) {
         throw new Error("Failed to create user account")
       }
 
-      // Here, you don't need to manually create the profile anymore. The trigger will handle that.
-
       addToast({
         title: "Account created successfully",
-        description: "Welcome to TurGame!",
+        description: "Welcome to the app!",
         type: "success",
       })
 
