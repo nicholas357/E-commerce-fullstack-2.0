@@ -5,6 +5,7 @@ import { useRouter } from "next/navigation"
 import { useToast } from "@/components/ui/toast-provider"
 import { createClient } from "@/lib/supabase/client"
 
+// Define the User type
 type User = {
   id: string
   email: string
@@ -13,6 +14,7 @@ type User = {
   role?: string
 }
 
+// Define the AuthContext type
 type AuthContextType = {
   user: User | null
   profile: any
@@ -25,8 +27,10 @@ type AuthContextType = {
   signInWithGoogle: () => Promise<{ error?: string }>
 }
 
+// Create the AuthContext
 const AuthContext = createContext<AuthContextType | undefined>(undefined)
 
+// Create the AuthProvider component
 export function AuthProvider({ children }: { children: ReactNode }) {
   const [user, setUser] = useState<User | null>(null)
   const [profile, setProfile] = useState<any>(null)
@@ -36,50 +40,61 @@ export function AuthProvider({ children }: { children: ReactNode }) {
   const { addToast } = useToast()
   const supabase = createClient()
 
+  // Check if the user is an admin
   const isAdmin = user?.role === "admin"
 
+  // Check if the user is logged in
   useEffect(() => {
     const checkUser = async () => {
-      setIsLoading(true)
-      setError(null)
+      try {
+        setIsLoading(true)
+        setError(null)
 
-      const {
-        data: { session },
-      } = await supabase.auth.getSession()
+        // Get the current session
+        const {
+          data: { session },
+        } = await supabase.auth.getSession()
 
-      if (session?.user) {
-        const { data: profileData } = await supabase
-          .from("profiles")
-          .select("*")
-          .eq("id", session.user.id)
-          .single()
+        if (session?.user) {
+          console.log("Session found:", session.user.id)
+          // Get the user profile
+          const { data: profileData } = await supabase.from("profiles").select("*").eq("id", session.user.id).single()
 
-        setUser({
-          id: session.user.id,
-          email: session.user.email || "",
-          full_name: profileData?.full_name || "",
-          avatar_url: profileData?.avatar_url || "",
-          role: profileData?.role || "user",
-        })
+          setUser({
+            id: session.user.id,
+            email: session.user.email || "",
+            full_name: profileData?.full_name || "",
+            avatar_url: profileData?.avatar_url || "",
+            role: profileData?.role || "user",
+          })
 
-        setProfile(profileData)
-      } else {
+          setProfile(profileData)
+        } else {
+          console.log("No session found")
+          setUser(null)
+          setProfile(null)
+        }
+      } catch (err) {
+        console.error("Error checking user:", err)
+        setError(null)
         setUser(null)
         setProfile(null)
+      } finally {
+        setIsLoading(false)
       }
-
-      setIsLoading(false)
     }
 
+    checkUser()
+
+    // Set up auth state change listener
     const {
       data: { subscription },
     } = supabase.auth.onAuthStateChange(async (event, session) => {
+      console.log("Auth state changed:", event, session?.user?.id)
+
       if (session?.user) {
-        const { data: profileData } = await supabase
-          .from("profiles")
-          .select("*")
-          .eq("id", session.user.id)
-          .single()
+        // Get the user profile
+        const { data: profileData } = await supabase.from("profiles").select("*").eq("id", session.user.id).single()
 
         setUser({
           id: session.user.id,
@@ -98,34 +113,45 @@ export function AuthProvider({ children }: { children: ReactNode }) {
       setIsLoading(false)
     })
 
-    checkUser()
-
-    return () => subscription.unsubscribe()
+    // Cleanup subscription on unmount
+    return () => {
+      subscription.unsubscribe()
+    }
   }, [supabase])
 
+  // Sign in with email and password
   const signIn = async (email: string, password: string) => {
     try {
       setIsLoading(true)
       setError(null)
 
-      const { error } = await supabase.auth.signInWithPassword({ email, password })
-      if (error) throw error
+      console.log("Signing in with email:", email)
+      const { data, error } = await supabase.auth.signInWithPassword({
+        email,
+        password,
+      })
 
-      // Immediately fetch session + user data to set manually
-      const {
-        data: { session },
-      } = await supabase.auth.getSession()
+      if (error) {
+        console.error("Sign in error:", error)
+        throw error
+      }
 
-      if (session?.user) {
+      console.log("Sign in successful:", data.user?.id)
+
+      // Force refresh the session
+      const { data: sessionData } = await supabase.auth.getSession()
+
+      if (sessionData.session?.user) {
+        // Get the user profile
         const { data: profileData } = await supabase
           .from("profiles")
           .select("*")
-          .eq("id", session.user.id)
+          .eq("id", sessionData.session.user.id)
           .single()
 
         setUser({
-          id: session.user.id,
-          email: session.user.email || "",
+          id: sessionData.session.user.id,
+          email: sessionData.session.user.email || "",
           full_name: profileData?.full_name || "",
           avatar_url: profileData?.avatar_url || "",
           role: profileData?.role || "user",
@@ -151,27 +177,39 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     }
   }
 
+  // Sign up with email and password
   const signUp = async (email: string, password: string, fullName: string) => {
     try {
       setIsLoading(true)
       setError(null)
 
+      // Validate password length
       if (password.length < 6) {
         const errorMessage = "Password must be at least 6 characters long"
         setError(errorMessage)
         return { error: errorMessage }
       }
 
+      // First, sign up the user with Supabase Auth
       const { data, error } = await supabase.auth.signUp({
         email,
         password,
         options: {
-          data: { full_name: fullName },
+          data: {
+            full_name: fullName,
+          },
         },
       })
 
-      if (error) throw error
-      if (!data?.user) throw new Error("Failed to create user account")
+      if (error) {
+        throw error
+      }
+
+      if (!data?.user) {
+        throw new Error("Failed to create user account")
+      }
+
+      // Here, you don't need to manually create the profile anymore. The trigger will handle that.
 
       addToast({
         title: "Account created successfully",
@@ -190,7 +228,8 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     }
   }
 
-  const signInWithGoogle = async () => {
+  // Sign in with Google
+  const handleSignInWithGoogle = async () => {
     try {
       setIsLoading(true)
       setError(null)
@@ -202,7 +241,10 @@ export function AuthProvider({ children }: { children: ReactNode }) {
         },
       })
 
-      if (error) throw error
+      if (error) {
+        throw error
+      }
+
       return {}
     } catch (err: any) {
       console.error("Error signing in with Google:", err)
@@ -214,13 +256,17 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     }
   }
 
+  // Sign out
   const signOut = async () => {
     try {
       setIsLoading(true)
       setError(null)
 
       const { error } = await supabase.auth.signOut()
-      if (error) throw error
+
+      if (error) {
+        throw error
+      }
 
       setUser(null)
       setProfile(null)
@@ -240,6 +286,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     }
   }
 
+  // Create the context value
   const value = {
     user,
     profile,
@@ -249,12 +296,14 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     signIn,
     signUp,
     signOut,
-    signInWithGoogle,
+    signInWithGoogle: handleSignInWithGoogle,
   }
 
+  // Return the AuthContext.Provider
   return <AuthContext.Provider value={value}>{children}</AuthContext.Provider>
 }
 
+// Create the useAuth hook
 export function useAuth() {
   const context = useContext(AuthContext)
   if (context === undefined) {

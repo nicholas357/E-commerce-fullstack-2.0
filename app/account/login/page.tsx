@@ -1,54 +1,58 @@
-"use client";
+"use client"
 
-import { useState, useEffect } from "react";
-import { useRouter, useSearchParams } from "next/navigation";
-import Link from "next/link";
-import { Eye, EyeOff, Mail, Lock } from "lucide-react";
-import { GamingButton } from "@/components/ui/gaming-button";
-import { GoogleLoginButton } from "@/components/google-login-button";
-import { useAuth } from "@/context/auth-context";
+import type React from "react"
+
+import { useState, useEffect } from "react"
+import Link from "next/link"
+import { useRouter, useSearchParams } from "next/navigation"
+import { Eye, EyeOff, Mail, Lock } from "lucide-react"
+import { GamingButton } from "@/components/ui/gaming-button"
+import { GoogleLoginButton } from "@/components/google-login-button"
+import { useAuth } from "@/context/auth-context"
 
 export default function LoginPage() {
-  const [email, setEmail] = useState("");
-  const [password, setPassword] = useState("");
-  const [showPassword, setShowPassword] = useState(false);
-  const [isSubmitting, setIsSubmitting] = useState(false);
-  const [formError, setFormError] = useState("");
+  const [email, setEmail] = useState("")
+  const [password, setPassword] = useState("")
+  const [showPassword, setShowPassword] = useState(false)
+  const [isSubmitting, setIsSubmitting] = useState(false)
+  const [formError, setFormError] = useState("")
+  const { signIn, user } = useAuth()
+  const router = useRouter()
+  const searchParams = useSearchParams()
+  const redirectTo = searchParams?.get("redirectTo") || "/account"
 
-  const { signIn, user, isLoading } = useAuth();
-  const router = useRouter();
-  const params = useSearchParams();
-  const redirectTo = params.get("redirectTo") ?? "/account";
-
-  // ✅ Wait for user to be loaded before redirecting
+  // Redirect if already logged in
   useEffect(() => {
-    if (!isLoading && user) {
-      router.push(redirectTo);
+    if (user) {
+      console.log("User is logged in, redirecting to:", redirectTo)
+      router.push(redirectTo)
     }
-  }, [user, isLoading, redirectTo, router]);
+  }, [user, router, redirectTo])
 
   const handleSubmit = async (e: React.FormEvent) => {
-    e.preventDefault();
-    setFormError("");
+    e.preventDefault()
+    setFormError("")
 
     if (!email || !password) {
-      setFormError("Please fill in all fields");
-      return;
+      setFormError("Please fill in all fields")
+      return
     }
 
-    setIsSubmitting(true);
+    setIsSubmitting(true)
+
     try {
-      const { error } = await signIn(email, password);
+      const { error } = await signIn(email, password)
       if (error) {
-        setFormError(error);
+        setFormError(error)
+      } else {
+        console.log("Sign in successful, user should be redirected via useEffect")
       }
-      // ✅ Don't redirect here — wait for `useEffect` to handle it after user is set
-    } catch (err: any) {
-      setFormError(err.message || "An error occurred during sign in");
+    } catch (error: any) {
+      setFormError(error.message || "An error occurred during sign in")
     } finally {
-      setIsSubmitting(false);
+      setIsSubmitting(false)
     }
-  };
+  }
 
   return (
     <div className="mx-auto max-w-md px-4 py-8">
@@ -131,7 +135,7 @@ export default function LoginPage() {
           <GamingButton type="submit" variant="amber" className="w-full" disabled={isSubmitting}>
             {isSubmitting ? (
               <span className="flex items-center justify-center">
-                <span className="mr-2 h-4 w-4 animate-spin rounded-full border-2 border-white border-t-transparent" />
+                <span className="mr-2 h-4 w-4 animate-spin rounded-full border-2 border-white border-t-transparent"></span>
                 Signing in...
               </span>
             ) : (
@@ -143,24 +147,25 @@ export default function LoginPage() {
         <div className="mt-6">
           <div className="relative">
             <div className="absolute inset-0 flex items-center">
-              <div className="w-full border-t border-border" />
+              <div className="w-full border-t border-border"></div>
             </div>
             <div className="relative flex justify-center text-sm">
               <span className="bg-card px-2 text-gray-400">Or continue with</span>
             </div>
           </div>
+
           <div className="mt-6">
             <GoogleLoginButton />
           </div>
         </div>
 
         <div className="mt-6 text-center text-sm text-gray-400">
-          Don’t have an account?{" "}
+          Don't have an account?{" "}
           <Link href="/account/signup" className="font-medium text-amber-500 hover:text-amber-400">
             Sign up
           </Link>
         </div>
       </div>
     </div>
-  );
+  )
 }
