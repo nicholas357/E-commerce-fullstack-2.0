@@ -4,7 +4,6 @@ import { createContext, useContext, useState, useEffect, type ReactNode } from "
 import { useRouter } from "next/navigation"
 import { useToast } from "@/components/ui/toast-provider"
 import { createClient } from "@/lib/supabase/client"
-import { useSearchParams } from "next/navigation"
 
 // Define the User type
 type User = {
@@ -39,11 +38,15 @@ export function AuthProvider({ children }: { children: ReactNode }) {
   const [error, setError] = useState<string | null>(null)
   const router = useRouter()
   const { addToast } = useToast()
-  const supabase = createClient()
 
-  // Get the redirectTo URL from query params (if any)
-  const searchParams = useSearchParams()
-  const redirectTo = searchParams?.get("redirectTo") || "/account" // Default fallback to "/account"
+  // Create Supabase client with error handling
+  let supabase
+  try {
+    supabase = createClient()
+  } catch (err) {
+    console.error("Failed to create Supabase client:", err)
+    // Continue with a null client - we'll handle this in the effects and methods
+  }
 
   // Check if the user is an admin
   const isAdmin = user?.role === "admin"
@@ -55,8 +58,17 @@ export function AuthProvider({ children }: { children: ReactNode }) {
         setIsLoading(true)
         setError(null)
 
+        // Skip if no client
+        if (!supabase) {
+          console.error("No Supabase client available")
+          setIsLoading(false)
+          return
+        }
+
         // Get the current session
-        const { data: { session } } = await supabase.auth.getSession()
+        const {
+          data: { session },
+        } = await supabase.auth.getSession()
 
         if (session?.user) {
           console.log("Session found:", session.user.id)
@@ -79,7 +91,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
         }
       } catch (err) {
         console.error("Error checking user:", err)
-        setError("Error retrieving session.")
+        setError(null)
         setUser(null)
         setProfile(null)
       } finally {
@@ -87,36 +99,42 @@ export function AuthProvider({ children }: { children: ReactNode }) {
       }
     }
 
-    checkUser()
+    if (supabase) {
+      checkUser()
 
-    // Set up auth state change listener
-    const { data: { subscription } } = supabase.auth.onAuthStateChange(async (event, session) => {
-      console.log("Auth state changed:", event, session?.user?.id)
+      // Set up auth state change listener
+      const {
+        data: { subscription },
+      } = supabase.auth.onAuthStateChange(async (event, session) => {
+        console.log("Auth state changed:", event, session?.user?.id)
 
-      if (session?.user) {
-        // Get the user profile
-        const { data: profileData } = await supabase.from("profiles").select("*").eq("id", session.user.id).single()
+        if (session?.user) {
+          // Get the user profile
+          const { data: profileData } = await supabase.from("profiles").select("*").eq("id", session.user.id).single()
 
-        setUser({
-          id: session.user.id,
-          email: session.user.email || "",
-          full_name: profileData?.full_name || "",
-          avatar_url: profileData?.avatar_url || "",
-          role: profileData?.role || "user",
-        })
+          setUser({
+            id: session.user.id,
+            email: session.user.email || "",
+            full_name: profileData?.full_name || "",
+            avatar_url: profileData?.avatar_url || "",
+            role: profileData?.role || "user",
+          })
 
-        setProfile(profileData)
-      } else {
-        setUser(null)
-        setProfile(null)
+          setProfile(profileData)
+        } else {
+          setUser(null)
+          setProfile(null)
+        }
+
+        setIsLoading(false)
+      })
+
+      // Cleanup subscription on unmount
+      return () => {
+        subscription.unsubscribe()
       }
-
+    } else {
       setIsLoading(false)
-    })
-
-    // Cleanup subscription on unmount
-    return () => {
-      subscription.unsubscribe()
     }
   }, [supabase])
 
@@ -125,6 +143,10 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     try {
       setIsLoading(true)
       setError(null)
+
+      if (!supabase) {
+        throw new Error("Authentication service is not available")
+      }
 
       console.log("Signing in with email:", email)
       const { data, error } = await supabase.auth.signInWithPassword({
@@ -139,7 +161,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
 
       console.log("Sign in successful:", data.user?.id)
 
-      // Force refresh the session after successful login
+      // Force refresh the session
       const { data: sessionData } = await supabase.auth.getSession()
 
       if (sessionData.session?.user) {
@@ -159,9 +181,6 @@ export function AuthProvider({ children }: { children: ReactNode }) {
         })
 
         setProfile(profileData)
-
-        // Trigger redirect after successful login
-        router.push(redirectTo) // Redirect using the redirectTo URL
       }
 
       addToast({
@@ -186,6 +205,10 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     try {
       setIsLoading(true)
       setError(null)
+
+      if (!supabase) {
+        throw new Error("Authentication service is not available")
+      }
 
       // Validate password length
       if (password.length < 6) {
@@ -215,7 +238,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
 
       addToast({
         title: "Account created successfully",
-        description: "Welcome to the app!",
+        description: "Welcome to TurGame!",
         type: "success",
       })
 
@@ -235,6 +258,10 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     try {
       setIsLoading(true)
       setError(null)
+
+      if (!supabase) {
+        throw new Error("Authentication service is not available")
+      }
 
       const { error } = await supabase.auth.signInWithOAuth({
         provider: "google",
@@ -263,6 +290,10 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     try {
       setIsLoading(true)
       setError(null)
+
+      if (!supabase) {
+        throw new Error("Authentication service is not available")
+      }
 
       const { error } = await supabase.auth.signOut()
 

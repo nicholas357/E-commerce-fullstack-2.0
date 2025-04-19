@@ -16,18 +16,18 @@ export default function LoginPage() {
   const [showPassword, setShowPassword] = useState(false)
   const [isSubmitting, setIsSubmitting] = useState(false)
   const [formError, setFormError] = useState("")
-  const { signIn, user, session } = useAuth()  // Added session to check the session directly
+  const { signIn, user } = useAuth()
   const router = useRouter()
   const searchParams = useSearchParams()
   const redirectTo = searchParams?.get("redirectTo") || "/account"
 
   // Redirect if already logged in
   useEffect(() => {
-    if (user || session) { // Check for session too in case the state changes but the user is already logged in
+    if (user) {
       console.log("User is logged in, redirecting to:", redirectTo)
-      router.replace(redirectTo)  // Using replace to avoid going back to the login page
+      router.push(redirectTo)
     }
-  }, [user, session, router, redirectTo])  // Added session to dependencies to handle session updates
+  }, [user, router, redirectTo])
 
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault()
@@ -43,7 +43,7 @@ export default function LoginPage() {
     try {
       const { error } = await signIn(email, password)
       if (error) {
-        setFormError(error.message || "An error occurred during sign in")  // Better error message handling
+        setFormError(error)
       } else {
         console.log("Sign in successful, user should be redirected via useEffect")
       }
