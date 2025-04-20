@@ -1,35 +1,38 @@
-import { createBrowserClient } from "@supabase/ssr"
-import { getEnv } from "@/lib/config"
+import { createClient as createSupabaseClient } from "@supabase/supabase-js"
+import type { Database } from "@/lib/supabase/database.types"
 
-let supabaseClient: ReturnType<typeof createBrowserClient> | null = null
+// Create a singleton instance of the Supabase client
+let supabaseClient: ReturnType<typeof createSupabaseClient> | null = null
 
 export function createClient() {
   if (supabaseClient) {
     return supabaseClient
   }
 
-  // Get Supabase URL and anon key from environment variables or config
-  const supabaseUrl = process.env.NEXT_PUBLIC_SUPABASE_URL || getEnv("NEXT_PUBLIC_SUPABASE_URL")
-  const supabaseAnonKey = process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY || getEnv("NEXT_PUBLIC_SUPABASE_ANON_KEY")
+  // Use environment variables
+  const supabaseUrl = process.env.NEXT_PUBLIC_SUPABASE_URL || "https://lgfnbyurnavwxtcrftzx.supabase.co"
+  const supabaseAnonKey =
+    process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY ||
+    "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6ImxnZm5ieXVybmF2d3h0Y3JmdHp4Iiwicm9sZSI6ImFub24iLCJpYXQiOjE3NDQzOTQ3NDIsImV4cCI6MjA1OTk3MDc0Mn0.4iKhdwzJeNGxV8DO3jpQ-OwmOfjKg1cvIFPUed3akOI"
 
-  // Validate that we have the required values
-  if (!supabaseUrl || !supabaseAnonKey) {
-    console.error("Missing Supabase credentials. Please check your environment variables or config.ts file.", {
-      supabaseUrl: !!supabaseUrl,
-      supabaseAnonKey: !!supabaseAnonKey,
-    })
-    throw new Error("Missing Supabase credentials. Check your environment variables or config.ts file.")
-  }
+  supabaseClient = createSupabaseClient<Database>(supabaseUrl, supabaseAnonKey, {
+    auth: {
+      persistSession: true,
+      autoRefreshToken: true,
+      detectSessionInUrl: true,
+    },
+    global: {
+      fetch: (...args) => {
+        // Add a longer timeout for fetch operations
+        return fetch(...args)
+      },
+    },
+    // Add storage-specific options
+    storage: {
+      // Increase timeout for large file uploads
+      uploadTimeout: 30000,
+    },
+  })
 
-  try {
-    supabaseClient = createBrowserClient(supabaseUrl, supabaseAnonKey)
-    return supabaseClient
-  } catch (error) {
-    console.error("Error creating Supabase client:", error)
-    throw error
-  }
-}
-
-export function getSupabaseClient() {
-  return createClient()
+  return supabaseClient
 }

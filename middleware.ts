@@ -1,6 +1,5 @@
+import { type NextRequest, NextResponse } from "next/server"
 import { createMiddlewareClient } from "@supabase/auth-helpers-nextjs"
-import { NextResponse } from "next/server"
-import type { NextRequest } from "next/server"
 
 export async function middleware(req: NextRequest) {
   const res = NextResponse.next()
@@ -9,9 +8,6 @@ export async function middleware(req: NextRequest) {
   const {
     data: { session },
   } = await supabase.auth.getSession()
-
-  // Debug log
-  console.log("Middleware path:", req.nextUrl.pathname, "Session:", session ? "exists" : "none")
 
   // If user is not logged in and trying to access protected routes
   if (
@@ -30,9 +26,7 @@ export async function middleware(req: NextRequest) {
     session &&
     (req.nextUrl.pathname.includes("/account/login") || req.nextUrl.pathname.includes("/account/signup"))
   ) {
-    // Redirect to account page or the intended destination
-    const redirectTo = req.nextUrl.searchParams.get("redirectTo") || "/account"
-    return NextResponse.redirect(new URL(redirectTo, req.url))
+    return NextResponse.redirect(new URL("/account", req.url))
   }
 
   // Handle category slug redirects for old URLs

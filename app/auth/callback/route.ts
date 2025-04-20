@@ -6,7 +6,6 @@ import type { NextRequest } from "next/server"
 export async function GET(request: NextRequest) {
   const requestUrl = new URL(request.url)
   const code = requestUrl.searchParams.get("code")
-  const redirectTo = requestUrl.searchParams.get("redirectTo") || "/account"
 
   if (code) {
     const supabase = createRouteHandlerClient({ cookies })
@@ -14,5 +13,5 @@ export async function GET(request: NextRequest) {
   }
 
   // URL to redirect to after sign in process completes
-  return NextResponse.redirect(new URL(redirectTo, request.url))
+  return NextResponse.redirect(new URL("/account", request.url))
 }

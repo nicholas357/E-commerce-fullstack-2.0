@@ -38,88 +38,84 @@ export function AuthProvider({ children }: { children: ReactNode }) {
   const [error, setError] = useState<string | null>(null)
   const router = useRouter()
   const { addToast } = useToast()
-
-  // Create Supabase client with error handling
-  let supabase
-  try {
-    supabase = createClient()
-  } catch (err) {
-    console.error("Failed to create Supabase client:", err)
-    // Continue with a null client - we'll handle this in the effects and methods
-  }
+  const supabase = createClient()
 
   // Check if the user is an admin
   const isAdmin = user?.role === "admin"
 
   // Check if the user is logged in
   useEffect(() => {
+    // Only proceed if running in a browser environment
+    if (typeof window === "undefined") {
+      setIsLoading(false)
+      return
+    }
+
+    let isMounted = true
+
     const checkUser = async () => {
       try {
         setIsLoading(true)
         setError(null)
 
-        // Skip if no client
-        if (!supabase) {
-          console.error("No Supabase client available")
-          setIsLoading(false)
-          return
-        }
-
-        // Get the current session
         const {
           data: { session },
         } = await supabase.auth.getSession()
 
-        if (session?.user) {
-          console.log("Session found:", session.user.id)
-          // Get the user profile
-          const { data: profileData } = await supabase.from("profiles").select("*").eq("id", session.user.id).single()
+        if (isMounted) {
+          if (session?.user) {
+            // Get the user profile
+            const { data: profileData } = await supabase.from("profiles").select("*").eq("id", session.user.id).single()
 
-          setUser({
-            id: session.user.id,
-            email: session.user.email || "",
-            full_name: profileData?.full_name || "",
-            avatar_url: profileData?.avatar_url || "",
-            role: profileData?.role || "user",
-          })
-
-          setProfile(profileData)
-        } else {
-          console.log("No session found")
-          setUser(null)
-          setProfile(null)
+            if (isMounted) {
+              const userProfile = {
+                id: session.user.id,
+                email: session.user.email || "",
+                full_name: profileData?.full_name || "",
+                avatar_url: profileData?.avatar_url || "",
+                role: profileData?.role || "user",
+              }
+              setUser(userProfile)
+              setProfile(profileData)
+            }
+          } else {
+            setUser(null)
+            setProfile(null)
+          }
         }
-      } catch (err) {
+      } catch (err: any) {
         console.error("Error checking user:", err)
-        setError(null)
-        setUser(null)
-        setProfile(null)
+        if (isMounted) {
+          setError(err.message || "An unknown error occurred")
+          setUser(null)
+          setProfile(null)
+        }
       } finally {
-        setIsLoading(false)
+        if (isMounted) {
+          setIsLoading(false)
+        }
       }
     }
 
-    if (supabase) {
-      checkUser()
+    checkUser()
 
-      // Set up auth state change listener
-      const {
-        data: { subscription },
-      } = supabase.auth.onAuthStateChange(async (event, session) => {
-        console.log("Auth state changed:", event, session?.user?.id)
-
+    // Set up auth state change listener
+    const {
+      data: { subscription },
+    } = supabase.auth.onAuthStateChange(async (event, session) => {
+      if (isMounted) {
         if (session?.user) {
           // Get the user profile
           const { data: profileData } = await supabase.from("profiles").select("*").eq("id", session.user.id).single()
 
-          setUser({
+          const userProfile = {
             id: session.user.id,
             email: session.user.email || "",
             full_name: profileData?.full_name || "",
             avatar_url: profileData?.avatar_url || "",
             role: profileData?.role || "user",
-          })
-
+          }
+          setUser(userProfile)
           setProfile(profileData)
         } else {
           setUser(null)
@@ -127,16 +123,15 @@ export function AuthProvider({ children }: { children: ReactNode }) {
         }
 
         setIsLoading(false)
-      })
-
-      // Cleanup subscription on unmount
-      return () => {
-        subscription.unsubscribe()
       }
-    } else {
-      setIsLoading(false)
+    })
+
+    // Cleanup function
+    return () => {
+      isMounted = false
+      subscription?.unsubscribe()
     }
-  }, [supabase])
+  }, [supabase, router])
 
   // Sign in with email and password
   const signIn = async (email: string, password: string) => {
@@ -144,43 +139,13 @@ export function AuthProvider({ children }: { children: ReactNode }) {
       setIsLoading(true)
       setError(null)
 
-      if (!supabase) {
-        throw new Error("Authentication service is not available")
-      }
-
-      console.log("Signing in with email:", email)
-      const { data, error } = await supabase.auth.signInWithPassword({
+      const { error } = await supabase.auth.signInWithPassword({
         email,
         password,
       })
 
       if (error) {
-        console.error("Sign in error:", error)
         throw error
-      }
-
-      console.log("Sign in successful:", data.user?.id)
-
-      // Force refresh the session
-      const { data: sessionData } = await supabase.auth.getSession()
-
-      if (sessionData.session?.user) {
-        // Get the user profile
-        const { data: profileData } = await supabase
-          .from("profiles")
-          .select("*")
-          .eq("id", sessionData.session.user.id)
-          .single()
-
-        setUser({
-          id: sessionData.session.user.id,
-          email: sessionData.session.user.email || "",
-          full_name: profileData?.full_name || "",
-          avatar_url: profileData?.avatar_url || "",
-          role: profileData?.role || "user",
-        })
-
-        setProfile(profileData)
       }
 
       addToast({
@@ -189,6 +154,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
         type: "success",
       })
 
+      router.push("/account") // Client-side redirect after successful sign-in
       return {}
     } catch (err: any) {
       console.error("Error signing in:", err)
@@ -200,15 +166,10 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     }
   }
 
-  // Sign up with email and password
   const signUp = async (email: string, password: string, fullName: string) => {
     try {
       setIsLoading(true)
       setError(null)
-
-      if (!supabase) {
-        throw new Error("Authentication service is not available")
-      }
 
       // Validate password length
       if (password.length < 6) {
@@ -242,6 +203,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
         type: "success",
       })
 
+      router.push("/account") // Client-side redirect after successful sign-up
       return {}
     } catch (err: any) {
       console.error("Error signing up:", err)
@@ -258,10 +220,6 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     try {
       setIsLoading(true)
       setError(null)
-
-      if (!supabase) {
-        throw new Error("Authentication service is not available")
-      }
 
       const { error } = await supabase.auth.signInWithOAuth({
         provider: "google",
@@ -290,10 +248,6 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     try {
       setIsLoading(true)
       setError(null)
-
-      if (!supabase) {
-        throw new Error("Authentication service is not available")
-      }
 
       const { error } = await supabase.auth.signOut()
 

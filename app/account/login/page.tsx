@@ -4,7 +4,7 @@ import type React from "react"
 
 import { useState, useEffect } from "react"
 import Link from "next/link"
-import { useRouter, useSearchParams } from "next/navigation"
+import { useRouter } from "next/navigation"
 import { Eye, EyeOff, Mail, Lock } from "lucide-react"
 import { GamingButton } from "@/components/ui/gaming-button"
 import { GoogleLoginButton } from "@/components/google-login-button"
@@ -18,16 +18,23 @@ export default function LoginPage() {
   const [formError, setFormError] = useState("")
   const { signIn, user } = useAuth()
   const router = useRouter()
-  const searchParams = useSearchParams()
-  const redirectTo = searchParams?.get("redirectTo") || "/account"
+  const [redirectPath, setRedirectPath] = useState("/account")
+
+  // Check if there's a redirect path in localStorage
+  useEffect(() => {
+    const storedRedirectPath = localStorage.getItem("redirectAfterLogin")
+    if (storedRedirectPath) {
+      setRedirectPath(storedRedirectPath)
+      localStorage.removeItem("redirectAfterLogin")
+    }
+  }, [])
 
   // Redirect if already logged in
   useEffect(() => {
     if (user) {
-      console.log("User is logged in, redirecting to:", redirectTo)
-      router.push(redirectTo)
+      router.push(redirectPath)
     }
-  }, [user, router, redirectTo])
+  }, [user, router, redirectPath])
 
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault()
@@ -45,7 +52,7 @@ export default function LoginPage() {
       if (error) {
         setFormError(error)
       } else {
-        console.log("Sign in successful, user should be redirected via useEffect")
+        // Successful login will redirect via the useEffect
       }
     } catch (error: any) {
       setFormError(error.message || "An error occurred during sign in")
