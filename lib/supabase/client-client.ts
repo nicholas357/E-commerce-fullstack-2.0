@@ -1,18 +1,22 @@
 import { createBrowserClient } from "@supabase/ssr"
+import { getEnv } from "@/lib/config"
 
 // Create a singleton instance of the Supabase client
 let supabaseClient: ReturnType<typeof createBrowserClient> | null = null
 
-export function createBrowserSupabaseClient() {
+export function getClientClient() {
   if (supabaseClient) return supabaseClient
 
-  supabaseClient = createBrowserClient(
-    process.env.NEXT_PUBLIC_SUPABASE_URL!,
-    process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY!,
-  )
+  const supabaseUrl = getEnv("NEXT_PUBLIC_SUPABASE_URL")
+  const supabaseKey = getEnv("NEXT_PUBLIC_SUPABASE_ANON_KEY")
 
+  if (!supabaseUrl || !supabaseKey) {
+    throw new Error("Supabase URL or anon key is missing in environment variables")
+  }
+
+  supabaseClient = createBrowserClient(supabaseUrl, supabaseKey)
   return supabaseClient
 }
 
 // Add the missing export with the expected name
-export const getSupabaseClient = createBrowserSupabaseClient
+export const getSupabaseClient = getClientClient
