@@ -6,7 +6,7 @@ import { Header } from "@/components/header";
 import { Footer } from "@/components/footer";
 import { Providers } from "@/components/providers";
 import { ScrollToTop } from "@/components/scroll-to-top";
-import { Suspense } from "react"; // <-- Add Suspense import
+import { Suspense } from "react";
 
 const inter = Inter({ subsets: ["latin"] });
 
@@ -16,6 +16,17 @@ export const metadata: Metadata = {
   generator: "v0.dev",
 };
 
+function SkeletonLoader() {
+  return (
+    <div className="min-h-screen animate-pulse px-4 py-6 space-y-6">
+      <div className="h-12 bg-gray-200 rounded-md" />
+      <div className="h-6 bg-gray-200 rounded w-3/4" />
+      <div className="h-64 bg-gray-200 rounded-md" />
+      <div className="h-4 bg-gray-200 rounded w-1/2" />
+    </div>
+  );
+}
+
 export default function RootLayout({
   children,
 }: Readonly<{
@@ -24,7 +35,7 @@ export default function RootLayout({
   return (
     <html lang="en">
       <body className={inter.className}>
-        <Suspense fallback={<div>Loading...</div>}>
+        <Suspense fallback={<SkeletonLoader />}>
           <Providers>
             <Header />
             <main className="min-h-screen">{children}</main>
