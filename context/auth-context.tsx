@@ -3,7 +3,7 @@
 import { createContext, useContext, useState, useEffect, type ReactNode } from "react"
 import { useRouter } from "next/navigation"
 import { useToast } from "@/components/ui/toast-provider"
-import { createClient } from "@/lib/supabase/client"
+import { getSupabaseClient } from "@/lib/supabase/client-client"
 
 // Define the User type
 type User = {
@@ -38,7 +38,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
   const [error, setError] = useState<string | null>(null)
   const router = useRouter()
   const { addToast } = useToast()
-  const supabase = createClient()
+  const supabase = getSupabaseClient()
 
   // Check if the user is an admin
   const isAdmin = user?.role === "admin"
@@ -51,11 +51,27 @@ export function AuthProvider({ children }: { children: ReactNode }) {
         setError(null)
 
         // Get the current session
-        const { data: { session } } = await supabase.auth.getSession()
+        const {
+          data: { session },
+          error: sessionError,
+        } = await supabase.auth.getSession()
+
+        if (sessionError) {
+          console.error("Session error:", sessionError)
+          throw sessionError
+        }
 
         if (session?.user) {
           // Get the user profile
-          const { data: profileData } = await supabase.from("profiles").select("*").eq("id", session.user.id).single()
+          const { data: profileData, error: profileError } = await supabase
+            .from("profiles")
+            .select("*")
+            .eq("id", session.user.id)
+            .single()
+
+          if (profileError) {
+            console.error("Error fetching profile:", profileError)
+          }
 
           setUser({
             id: session.user.id,
@@ -72,7 +88,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
         }
       } catch (err) {
         console.error("Error checking user:", err)
-        setError("Failed to fetch session. Please try again.")
+        setError(null)
         setUser(null)
         setProfile(null)
       } finally {
@@ -80,10 +96,25 @@ export function AuthProvider({ children }: { children: ReactNode }) {
       }
     }
 
+    checkUser()
+
     // Set up auth state change listener
-    const { data: { subscription } } = supabase.auth.onAuthStateChange(async (event, session) => {
+    const {
+      data: { subscription },
+    } = supabase.auth.onAuthStateChange(async (event, session) => {
+      console.log("Auth state changed:", event, session ? "session exists" : "no session")
+
       if (session?.user) {
-        const { data: profileData } = await supabase.from("profiles").select("*").eq("id", session.user.id).single()
+        // Get the user profile
+        const { data: profileData, error: profileError } = await supabase
+          .from("profiles")
+          .select("*")
+          .eq("id", session.user.id)
+          .single()
+
+        if (profileError) {
+          console.error("Error fetching profile:", profileError)
+        }
 
         setUser({
           id: session.user.id,
@@ -102,8 +133,6 @@ export function AuthProvider({ children }: { children: ReactNode }) {
       setIsLoading(false)
     })
 
-    checkUser()
-
     // Cleanup subscription on unmount
     return () => {
       subscription.unsubscribe()
@@ -116,7 +145,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
       setIsLoading(true)
       setError(null)
 
-      const { error } = await supabase.auth.signInWithPassword({
+      const { data, error } = await supabase.auth.signInWithPassword({
         email,
         password,
       })
@@ -163,6 +192,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
           data: {
             full_name: fullName,
           },
+          emailRedirectTo: `${window.location.origin}/auth/callback`,
         },
       })
 
@@ -192,12 +222,12 @@ export function AuthProvider({ children }: { children: ReactNode }) {
   }
 
   // Sign in with Google
-  const signInWithGoogle = async () => {
+  const handleSignInWithGoogle = async () => {
     try {
       setIsLoading(true)
       setError(null)
 
-      const { error } = await supabase.auth.signInWithOAuth({
+      const { data, error } = await supabase.auth.signInWithOAuth({
         provider: "google",
         options: {
           redirectTo: `${window.location.origin}/auth/callback`,
@@ -259,7 +289,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     signIn,
     signUp,
     signOut,
-    signInWithGoogle,
+    signInWithGoogle: handleSignInWithGoogle,
   }
 
   // Return the AuthContext.Provider
