@@ -1,39 +1,27 @@
-import { createServerClient } from "./server"
 import type { GetServerSidePropsContext } from "next"
+import { createServerClient } from "./server"
 
-// Helper function to use in getServerSideProps
-export async function getSupabaseServerProps(context: GetServerSidePropsContext) {
+// Helper function to create a Supabase client in getServerSideProps
+export function createServerSupabaseClient(context: GetServerSidePropsContext) {
   const { req, res } = context
 
-  // Create Supabase client using cookies from the request
-  const supabase = createServerClient(req.headers.cookie)
+  // Get the cookies from the request
+  const reqCookies = req.headers.cookie || ""
 
-  // Get the user session
-  const {
-    data: { session },
-  } = await supabase.auth.getSession()
+  // Create an array to store cookies for the response
+  const resCookies: string[] = []
 
-  // Handle Supabase auth cookie refresh if needed
-  if (session) {
-    const {
-      data: { session: refreshedSession },
-    } = await supabase.auth.refreshSession()
+  // Create the Supabase client
+  const supabase = createServerClient(reqCookies, resCookies)
 
-    // If we have a new session with new tokens, update the cookies
-    if (refreshedSession && refreshedSession.access_token !== session.access_token) {
-      const { access_token, refresh_token } = refreshedSession
-
-      // Set the new cookies
-      res.setHeader("Set-Cookie", [
-        `sb-access-token=${access_token}; Path=/; HttpOnly; SameSite=Lax; Max-Age=${60 * 60 * 24 * 7}`,
-        `sb-refresh-token=${refresh_token}; Path=/; HttpOnly; SameSite=Lax; Max-Age=${60 * 60 * 24 * 7}`,
-      ])
-    }
+  // Set the cookies on the response after the Supabase client has modified them
+  const originalEnd = res.end
+  res.end = function end(...args) {
+    resCookies.forEach((cookie) => {
+      res.setHeader("Set-Cookie", cookie)
+    })
+    return originalEnd.apply(this, args)
   }
 
-  return {
-    supabase,
-    session,
-    user: session?.user || null,
-  }
+  return supabase
 }

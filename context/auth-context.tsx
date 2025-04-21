@@ -1,7 +1,7 @@
 "use client"
 
 import { createContext, useContext, useState, useEffect, type ReactNode } from "react"
-import { useRouter } from "next/router" // Changed from next/navigation
+import { useRouter } from "next/navigation"
 import { useToast } from "@/components/ui/toast-provider"
 import { createClient } from "@/lib/supabase/client"
 
@@ -148,55 +148,57 @@ export function AuthProvider({ children }: { children: ReactNode }) {
   }
 
   // Sign up with email and password
-  const signUp = async (email: string, password: string, fullName: string) => {
-    try {
-      setIsLoading(true)
-      setError(null)
+ // Sign up with email and password
+const signUp = async (email: string, password: string, fullName: string) => {
+  try {
+    setIsLoading(true)
+    setError(null)
 
-      // Validate password length
-      if (password.length < 6) {
-        const errorMessage = "Password must be at least 6 characters long"
-        setError(errorMessage)
-        return { error: errorMessage }
-      }
-
-      // First, sign up the user with Supabase Auth
-      const { data, error } = await supabase.auth.signUp({
-        email,
-        password,
-        options: {
-          data: {
-            full_name: fullName,
-          },
-          // Use the Pages Router callback URL
-          emailRedirectTo: `${window.location.origin}/api/auth/callback`,
-        },
-      })
-
-      if (error) {
-        throw error
-      }
-
-      if (!data?.user) {
-        throw new Error("Failed to create user account")
-      }
-
-      addToast({
-        title: "Account created successfully",
-        description: "Welcome to TurGame!",
-        type: "success",
-      })
-
-      return {}
-    } catch (err: any) {
-      console.error("Error signing up:", err)
-      const errorMessage = err.message || "Failed to create account. Please try again."
+    // Validate password length
+    if (password.length < 6) {
+      const errorMessage = "Password must be at least 6 characters long"
       setError(errorMessage)
       return { error: errorMessage }
-    } finally {
-      setIsLoading(false)
     }
+
+    // First, sign up the user with Supabase Auth
+    const { data, error } = await supabase.auth.signUp({
+      email,
+      password,
+      options: {
+        data: {
+          full_name: fullName,
+        },
+      },
+    })
+
+    if (error) {
+      throw error
+    }
+
+    if (!data?.user) {
+      throw new Error("Failed to create user account")
+    }
+
+    // Here, you don't need to manually create the profile anymore. The trigger will handle that.
+
+    addToast({
+      title: "Account created successfully",
+      description: "Welcome to TurGame!",
+      type: "success",
+    })
+
+    return {}
+  } catch (err: any) {
+    console.error("Error signing up:", err)
+    const errorMessage = err.message || "Failed to create account. Please try again."
+    setError(errorMessage)
+    return { error: errorMessage }
+  } finally {
+    setIsLoading(false)
   }
+}
+
 
   // Sign in with Google
   const handleSignInWithGoogle = async () => {
@@ -207,8 +209,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
       const { error } = await supabase.auth.signInWithOAuth({
         provider: "google",
         options: {
-          // Use the Pages Router callback URL
-          redirectTo: `${window.location.origin}/api/auth/callback`,
+          redirectTo: `${window.location.origin}/auth/callback`,
         },
       })
 

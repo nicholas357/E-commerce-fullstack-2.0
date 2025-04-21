@@ -1,55 +1,61 @@
-import { type NextRequest, NextResponse } from "next/server"
-import { parse } from "cookie"
+import { createMiddlewareClient } from "@supabase/auth-helpers-nextjs"
+import { NextResponse } from "next/server"
+import type { NextRequest } from "next/server"
 
-export function middleware(req: NextRequest) {
-  // Get the pathname
-  const { pathname } = req.nextUrl
+export async function middleware(req: NextRequest) {
+  const res = NextResponse.next()
+  const supabase = createMiddlewareClient({ req, res })
 
-  // Parse cookies from the request
-  const cookies = parse(req.headers.get("cookie") || "")
-
-  // Check if the user is logged in by looking for the access token
-  const hasSession = cookies["sb-access-token"] || cookies["supabase-auth-token"]
+  const {
+    data: { session },
+  } = await supabase.auth.getSession()
 
   // If user is not logged in and trying to access protected routes
   if (
-    !hasSession &&
-    (pathname.startsWith("/account") || pathname.startsWith("/admin")) &&
-    !pathname.includes("/account/login") &&
-    !pathname.includes("/account/signup")
+    !session &&
+    (req.nextUrl.pathname.startsWith("/account") || req.nextUrl.pathname.startsWith("/admin")) &&
+    !req.nextUrl.pathname.includes("/account/login") &&
+    !req.nextUrl.pathname.includes("/account/signup")
   ) {
     const redirectUrl = new URL("/account/login", req.url)
-    redirectUrl.searchParams.set("redirectTo", pathname)
+    redirectUrl.searchParams.set("redirectTo", req.nextUrl.pathname)
     return NextResponse.redirect(redirectUrl)
   }
 
   // If user is logged in and trying to access login/signup pages
-  if (hasSession && (pathname.includes("/account/login") || pathname.includes("/account/signup"))) {
+  if (
+    session &&
+    (req.nextUrl.pathname.includes("/account/login") || req.nextUrl.pathname.includes("/account/signup"))
+  ) {
     return NextResponse.redirect(new URL("/account", req.url))
   }
 
   // Handle category slug redirects for old URLs
-  if (pathname.startsWith("/xbox-games")) {
+  // This is a simplified example - in a real app, you might want to check against a database of old slugs
+  if (req.nextUrl.pathname.startsWith("/xbox-games")) {
     return NextResponse.redirect(new URL("/category/games/xbox-games", req.url))
   }
 
-  if (pathname.startsWith("/gift-cards")) {
+  if (req.nextUrl.pathname.startsWith("/gift-cards")) {
     return NextResponse.redirect(new URL("/category/gift-cards", req.url))
   }
 
-  if (pathname.startsWith("/streaming-services")) {
+  if (req.nextUrl.pathname.startsWith("/streaming-services")) {
     return NextResponse.redirect(new URL("/category/streaming-services", req.url))
   }
 
-  if (pathname.startsWith("/game-points")) {
+  if (req.nextUrl.pathname.startsWith("/game-points")) {
     return NextResponse.redirect(new URL("/category/game-points", req.url))
   }
 
-  if (pathname.startsWith("/software")) {
+  if (req.nextUrl.pathname.startsWith("/software")) {
     return NextResponse.redirect(new URL("/category/software", req.url))
   }
 
-  return NextResponse.next()
+  // For admin routes, we'll do a more thorough check in the layout component
+  // This is just a first layer of protection
+
+  return res
 }
 
 export const config = {
