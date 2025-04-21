@@ -14,9 +14,11 @@ export function getClientClient() {
     throw new Error("Supabase URL or anon key is missing in environment variables")
   }
 
+  console.log("Creating Supabase client with URL:", supabaseUrl) // Debug log
+
   supabaseClient = createBrowserClient(supabaseUrl, supabaseKey)
   return supabaseClient
 }
 
-// Add the missing export with the expected name
+// Export the client getter function for other modules
 export const getSupabaseClient = getClientClient
