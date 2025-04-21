@@ -2,7 +2,7 @@
 
 import type { ReactNode } from "react"
 import { SessionContextProvider } from "@supabase/auth-helpers-react"
-import { getSupabaseClient } from "@/lib/client-client"
+import { getSupabaseClient } from "@/lib/supabase/client-client"
 import { ToastProvider } from "@/components/ui/toast-provider"
 import { LoadingProvider } from "@/context/loading-context"
 import { AuthProvider } from "@/context/auth-context"
