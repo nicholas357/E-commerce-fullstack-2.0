@@ -38,19 +38,25 @@ export function CartProvider({ children }: { children: React.ReactNode }) {
 
   // Load cart from cookies on initial render
   useEffect(() => {
-    const savedCart = getCookie("cart")
-    if (savedCart) {
-      try {
-        setItems(JSON.parse(savedCart))
-      } catch (error) {
-        console.error("Failed to parse cart from cookies:", error)
+    try {
+      const savedCart = getCookie("cart")
+      if (savedCart) {
+        setItems(savedCart)
       }
+    } catch (error) {
+      console.error("Failed to parse cart from cookies:", error)
+      // Initialize with empty cart on error
+      setItems([])
     }
   }, [])
 
   // Save cart to cookies whenever it changes
   useEffect(() => {
-    setCookie("cart", items)
+    try {
+      setCookie("cart", items)
+    } catch (error) {
+      console.error("Failed to save cart to cookies:", error)
+    }
   }, [items])
 
   const navigateToCart = () => {

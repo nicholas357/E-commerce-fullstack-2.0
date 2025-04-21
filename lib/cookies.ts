@@ -12,22 +12,33 @@ const DEFAULT_OPTIONS = {
  * Set a cookie with the given name and value
  */
 export function setCookie(name: string, value: any, options = {}) {
-  const stringValue = typeof value === "object" ? JSON.stringify(value) : String(value)
-  return Cookies.set(name, stringValue, { ...DEFAULT_OPTIONS, ...options })
+  try {
+    const stringValue = typeof value === "object" ? JSON.stringify(value) : String(value)
+    return Cookies.set(name, stringValue, { ...DEFAULT_OPTIONS, ...options })
+  } catch (error) {
+    console.error(`Error setting cookie ${name}:`, error)
+    return null
+  }
 }
 
 /**
  * Get a cookie by name
  */
 export function getCookie(name: string) {
-  const value = Cookies.get(name)
-  if (!value) return null
-
-  // Try to parse as JSON, if it fails return the string value
   try {
-    return JSON.parse(value)
+    const value = Cookies.get(name)
+    if (!value) return null
+
+    // Try to parse as JSON, if it fails return the string value
+    try {
+      return JSON.parse(value)
+    } catch (error) {
+      // If it's not valid JSON, return the raw value
+      return value
+    }
   } catch (error) {
-    return value
+    console.error(`Error getting cookie ${name}:`, error)
+    return null
   }
 }
 
@@ -35,5 +46,10 @@ export function getCookie(name: string) {
  * Remove a cookie by name
  */
 export function removeCookie(name: string, options = {}) {
-  return Cookies.remove(name, { ...options, path: "/" })
+  try {
+    return Cookies.remove(name, { ...options, path: "/" })
+  } catch (error) {
+    console.error(`Error removing cookie ${name}:`, error)
+    return null
+  }
 }
