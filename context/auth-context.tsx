@@ -3,7 +3,7 @@
 import { createContext, useContext, useState, useEffect, type ReactNode } from "react"
 import { useRouter } from "next/navigation"
 import { useToast } from "@/components/ui/toast-provider"
-import { getSupabaseClient } from "@/lib/supabase/client-client"
+import { createClient } from "@/lib/supabase/client"
 
 // Define the User type
 type User = {
@@ -38,7 +38,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
   const [error, setError] = useState<string | null>(null)
   const router = useRouter()
   const { addToast } = useToast()
-  const supabase = getSupabaseClient()
+  const supabase = createClient()
 
   // Check if the user is an admin
   const isAdmin = user?.role === "admin"
@@ -53,25 +53,11 @@ export function AuthProvider({ children }: { children: ReactNode }) {
         // Get the current session
         const {
           data: { session },
-          error: sessionError,
         } = await supabase.auth.getSession()
-
-        if (sessionError) {
-          console.error("Session error:", sessionError)
-          throw sessionError
-        }
 
         if (session?.user) {
           // Get the user profile
-          const { data: profileData, error: profileError } = await supabase
-            .from("profiles")
-            .select("*")
-            .eq("id", session.user.id)
-            .single()
-
-          if (profileError) {
-            console.error("Error fetching profile:", profileError)
-          }
+          const { data: profileData } = await supabase.from("profiles").select("*").eq("id", session.user.id).single()
 
           setUser({
             id: session.user.id,
@@ -96,25 +82,13 @@ export function AuthProvider({ children }: { children: ReactNode }) {
       }
     }
 
-    checkUser()
-
     // Set up auth state change listener
     const {
       data: { subscription },
     } = supabase.auth.onAuthStateChange(async (event, session) => {
-      console.log("Auth state changed:", event, session ? "session exists" : "no session")
-
       if (session?.user) {
         // Get the user profile
-        const { data: profileData, error: profileError } = await supabase
-          .from("profiles")
-          .select("*")
-          .eq("id", session.user.id)
-          .single()
-
-        if (profileError) {
-          console.error("Error fetching profile:", profileError)
-        }
+        const { data: profileData } = await supabase.from("profiles").select("*").eq("id", session.user.id).single()
 
         setUser({
           id: session.user.id,
@@ -133,6 +107,8 @@ export function AuthProvider({ children }: { children: ReactNode }) {
       setIsLoading(false)
     })
 
+    checkUser()
+
     // Cleanup subscription on unmount
     return () => {
       subscription.unsubscribe()
@@ -145,7 +121,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
       setIsLoading(true)
       setError(null)
 
-      const { data, error } = await supabase.auth.signInWithPassword({
+      const { error } = await supabase.auth.signInWithPassword({
         email,
         password,
       })
@@ -172,54 +148,57 @@ export function AuthProvider({ children }: { children: ReactNode }) {
   }
 
   // Sign up with email and password
-  const signUp = async (email: string, password: string, fullName: string) => {
-    try {
-      setIsLoading(true)
-      setError(null)
+ // Sign up with email and password
+const signUp = async (email: string, password: string, fullName: string) => {
+  try {
+    setIsLoading(true)
+    setError(null)
 
-      // Validate password length
-      if (password.length < 6) {
-        const errorMessage = "Password must be at least 6 characters long"
-        setError(errorMessage)
-        return { error: errorMessage }
-      }
-
-      // First, sign up the user with Supabase Auth
-      const { data, error } = await supabase.auth.signUp({
-        email,
-        password,
-        options: {
-          data: {
-            full_name: fullName,
-          },
-          emailRedirectTo: `${window.location.origin}/auth/callback`,
-        },
-      })
-
-      if (error) {
-        throw error
-      }
-
-      if (!data?.user) {
-        throw new Error("Failed to create user account")
-      }
-
-      addToast({
-        title: "Account created successfully",
-        description: "Welcome to TurGame!",
-        type: "success",
-      })
-
-      return {}
-    } catch (err: any) {
-      console.error("Error signing up:", err)
-      const errorMessage = err.message || "Failed to create account. Please try again."
+    // Validate password length
+    if (password.length < 6) {
+      const errorMessage = "Password must be at least 6 characters long"
       setError(errorMessage)
       return { error: errorMessage }
-    } finally {
-      setIsLoading(false)
     }
+
+    // First, sign up the user with Supabase Auth
+    const { data, error } = await supabase.auth.signUp({
+      email,
+      password,
+      options: {
+        data: {
+          full_name: fullName,
+        },
+      },
+    })
+
+    if (error) {
+      throw error
+    }
+
+    if (!data?.user) {
+      throw new Error("Failed to create user account")
+    }
+
+    // Here, you don't need to manually create the profile anymore. The trigger will handle that.
+
+    addToast({
+      title: "Account created successfully",
+      description: "Welcome to TurGame!",
+      type: "success",
+    })
+
+    return {}
+  } catch (err: any) {
+    console.error("Error signing up:", err)
+    const errorMessage = err.message || "Failed to create account. Please try again."
+    setError(errorMessage)
+    return { error: errorMessage }
+  } finally {
+    setIsLoading(false)
   }
+}
+
 
   // Sign in with Google
   const handleSignInWithGoogle = async () => {
@@ -227,7 +206,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
       setIsLoading(true)
       setError(null)
 
-      const { data, error } = await supabase.auth.signInWithOAuth({
+      const { error } = await supabase.auth.signInWithOAuth({
         provider: "google",
         options: {
           redirectTo: `${window.location.origin}/auth/callback`,

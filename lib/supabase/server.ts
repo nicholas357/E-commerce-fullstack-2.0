@@ -22,28 +22,30 @@ export function createServerClient(reqCookies?: string, resCookies?: Array<strin
       },
       set(name, value, options) {
         if (!resCookies) return
-        // Add the cookie to the response
+
+        // Add the cookie to the response with proper security settings
         resCookies.push(
           serialize(name, value, {
             path: "/",
             httpOnly: true,
             secure: process.env.NODE_ENV === "production",
-            sameSite: "lax",
             maxAge: 60 * 60 * 24 * 7, // 7 days
+            sameSite: "lax",
             ...options,
           }),
         )
       },
       remove(name, options) {
         if (!resCookies) return
+
         // Add the cookie with an expired date to the response
         resCookies.push(
           serialize(name, "", {
             path: "/",
             httpOnly: true,
             secure: process.env.NODE_ENV === "production",
-            sameSite: "lax",
             maxAge: -1,
+            sameSite: "lax",
             ...options,
           }),
         )

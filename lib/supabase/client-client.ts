@@ -14,22 +14,28 @@ export function getClientClient() {
     throw new Error("Supabase URL or anon key is missing in environment variables")
   }
 
-  // Create the browser client with cookie persistence
+  // Create browser client with proper cookie settings
   supabaseClient = createBrowserClient(supabaseUrl, supabaseKey, {
     cookies: {
       get(name) {
-        // Get cookie from document.cookie
-        const cookies = document.cookie.split(";").map((cookie) => cookie.trim())
-        const cookie = cookies.find((cookie) => cookie.startsWith(`${name}=`))
-        return cookie ? cookie.split("=")[1] : undefined
+        // Parse cookies from document.cookie
+        const cookies = document.cookie.split(";").reduce(
+          (acc, cookie) => {
+            const [key, value] = cookie.trim().split("=")
+            if (key) acc[key] = decodeURIComponent(value || "")
+            return acc
+          },
+          {} as Record<string, string>,
+        )
+        return cookies[name]
       },
       set(name, value, options) {
-        // Set cookie in document.cookie
-        document.cookie = `${name}=${value}; path=/; max-age=${options?.maxAge || 3600 * 24 * 7}; ${options?.secure ? "secure; " : ""}${options?.sameSite ? `samesite=${options.sameSite}; ` : ""}`
+        // Set cookie with proper attributes
+        document.cookie = `${name}=${encodeURIComponent(value)}; path=${options?.path || "/"}; max-age=${options?.maxAge || 315360000}${options?.domain ? `; domain=${options.domain}` : ""}${options?.sameSite ? `; samesite=${options.sameSite}` : "; samesite=lax"}${options?.secure || location.protocol === "https:" ? "; secure" : ""}`
       },
       remove(name, options) {
         // Remove cookie by setting expiry in the past
-        document.cookie = `${name}=; path=/; max-age=0; ${options?.secure ? "secure; " : ""}${options?.sameSite ? `samesite=${options.sameSite}; ` : ""}`
+        document.cookie = `${name}=; path=${options?.path || "/"}; max-age=-1${options?.domain ? `; domain=${options.domain}` : ""}${options?.sameSite ? `; samesite=${options.sameSite}` : "; samesite=lax"}${options?.secure || location.protocol === "https:" ? "; secure" : ""}`
       },
     },
   })

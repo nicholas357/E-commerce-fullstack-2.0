@@ -3,33 +3,27 @@ import { NextResponse } from "next/server"
 import type { NextRequest } from "next/server"
 
 export async function middleware(req: NextRequest) {
+  // Create a response object
   const res = NextResponse.next()
 
-  // 🐞 Debug Supabase auth cookie
-  const authCookieName = Object.keys(req.cookies).find((key) =>
-    key.startsWith("sb-") && key.endsWith("auth-token")
+  // Create the Supabase middleware client
+  const supabase = createMiddlewareClient(
+    { req, res },
+    {
+      supabaseUrl: process.env.NEXT_PUBLIC_SUPABASE_URL!,
+      supabaseKey: process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY!,
+      cookieOptions: {
+        name: "sb-auth-token",
+        lifetime: 60 * 60 * 24 * 7, // 7 days
+        domain: process.env.NODE_ENV === "production" ? req.headers.get("host")?.split(":")[0] : undefined,
+        path: "/",
+        sameSite: "lax",
+        secure: process.env.NODE_ENV === "production",
+      },
+    },
   )
 
-  if (authCookieName) {
-    const encodedValue = req.cookies.get(authCookieName)?.value
-    if (encodedValue) {
-      try {
-        const decoded = JSON.parse(Buffer.from(encodedValue, "base64").toString("utf-8"))
-        console.log("✅ Decoded Supabase Auth Cookie:", decoded)
-      } catch (err) {
-        console.error("❌ Failed to decode Supabase Auth Cookie:", err)
-      }
-    } else {
-      console.warn("⚠️ Auth cookie is present but empty")
-    }
-  } else {
-    console.warn("⚠️ No Supabase auth cookie found")
-  }
-
-  // Create a Supabase client specifically for the middleware
-  const supabase = createMiddlewareClient({ req, res })
-
-  // Refresh the session if needed
+  // Refresh the session if it exists
   const {
     data: { session },
   } = await supabase.auth.getSession()
@@ -55,6 +49,7 @@ export async function middleware(req: NextRequest) {
   }
 
   // Handle category slug redirects for old URLs
+  // This is a simplified example - in a real app, you might want to check against a database of old slugs
   if (req.nextUrl.pathname.startsWith("/xbox-games")) {
     return NextResponse.redirect(new URL("/category/games/xbox-games", req.url))
   }
