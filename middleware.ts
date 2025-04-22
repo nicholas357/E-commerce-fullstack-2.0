@@ -3,12 +3,10 @@ import { NextResponse } from "next/server"
 import type { NextRequest } from "next/server"
 
 export async function middleware(req: NextRequest) {
-  const res = NextResponse.next()
+  // 🧠 Create Supabase client
+  const supabase = createMiddlewareClient({ req })
 
-  // 🧠 Create Supabase client — no custom cookies for now to avoid issues
-  const supabase = createMiddlewareClient({ req, res })
-
-  // 📡 Try to get session
+  // 📡 Try to get the session from Supabase's built-in session management
   const {
     data: { session },
     error,
@@ -18,12 +16,13 @@ export async function middleware(req: NextRequest) {
   console.log("🔐 Session in middleware:", session?.user?.email || "No session")
   console.log("📄 Requested Path:", req.nextUrl.pathname)
 
-  // ❌ If there's an error fetching session
+  // ❌ Handle session fetch errors
   if (error) {
     console.error("❌ Session fetch error:", error.message)
+    return NextResponse.next()  // Let the request continue (or log the error in the console)
   }
 
-  // 🔐 Route protection
+  // 🔐 Define protected routes
   const isProtectedRoute =
     req.nextUrl.pathname.startsWith("/account") ||
     req.nextUrl.pathname.startsWith("/admin") ||
@@ -65,7 +64,7 @@ export async function middleware(req: NextRequest) {
     return NextResponse.redirect(new URL(redirectTarget, req.url))
   }
 
-  return res
+  return NextResponse.next()  // Continue with the request if no redirection needed
 }
 
 // ✅ Apply to all relevant protected routes
