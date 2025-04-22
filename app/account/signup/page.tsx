@@ -21,12 +21,20 @@ export default function SignupPage() {
   const router = useRouter()
   const [redirectPath, setRedirectPath] = useState("/account")
 
-  // Check if there's a redirect path in localStorage
+  // Check if there's a redirect path in cookies
   useEffect(() => {
-    const storedRedirectPath = localStorage.getItem("redirectAfterLogin")
+    const getCookie = (name: string) => {
+      const value = `; ${document.cookie}`
+      const parts = value.split(`; ${name}=`)
+      if (parts.length === 2) return parts.pop()?.split(";").shift()
+      return null
+    }
+
+    const storedRedirectPath = getCookie("redirectAfterLogin")
     if (storedRedirectPath) {
       setRedirectPath(storedRedirectPath)
-      localStorage.removeItem("redirectAfterLogin")
+      // Clear the cookie
+      document.cookie = "redirectAfterLogin=; path=/; expires=Thu, 01 Jan 1970 00:00:00 GMT"
     }
   }, [])
 
@@ -54,19 +62,17 @@ export default function SignupPage() {
     setIsSubmitting(true)
 
     try {
+      // Use the auth context's signUp method instead of direct API call
       const { error } = await signUp(email, password, fullName)
+
       if (error) {
         setFormError(error)
       } else {
-        // Successful signup will redirect via the useEffect
-        // Add a small delay to ensure the auth state updates
-        setTimeout(() => {
-          if (!user) {
-            router.push("/account/login?message=Account created. Please log in.")
-          }
-        }, 2000)
+        // Redirect to login page with success message
+        router.push("/account/login?message=Account created successfully. Please log in.")
       }
     } catch (error: any) {
+      console.error("Signup error:", error)
       setFormError(error.message || "An error occurred during sign up")
     } finally {
       setIsSubmitting(false)

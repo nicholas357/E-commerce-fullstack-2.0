@@ -1,47 +1,76 @@
-import { NextResponse } from "next/server";
-import type { NextRequest } from "next/server";
-import { createServerClient } from "@/lib/supabase/server";
+import { createMiddlewareClient } from "@supabase/auth-helpers-nextjs"
+import { NextResponse } from "next/server"
+import type { NextRequest } from "next/server"
 
 export async function middleware(req: NextRequest) {
-  const res = NextResponse.next();
+  // Create a response object
+  const res = NextResponse.next()
 
-  // Get the cookies from the request
-  const reqCookies = req.headers.get("cookie") || "";
-  const resCookies: string[] = [];
+  // Create the Supabase middleware client
+  const supabase = createMiddlewareClient(
+    { req, res },
+    {
+      supabaseUrl: process.env.NEXT_PUBLIC_SUPABASE_URL!,
+      supabaseKey: process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY!,
+      cookieOptions: {
+        name: "sb-auth-token",
+        lifetime: 60 * 60 * 24 * 7, // 7 days
+        domain: process.env.NODE_ENV === "production" ? req.headers.get("host")?.split(":")[0] : undefined,
+        path: "/",
+        sameSite: "lax",
+        secure: process.env.NODE_ENV === "production",
+      },
+    },
+  )
 
-  // Create the Supabase client with server-side cookies
-  const supabase = createServerClient(reqCookies, resCookies);
-
-  // Get session data
+  // Refresh the session if it exists
   const {
     data: { session },
-  } = await supabase.auth.getSession();
+  } = await supabase.auth.getSession()
 
-  // Attach updated cookies to the response
-  resCookies.forEach((cookie) => {
-    res.headers.append("Set-Cookie", cookie);
-  });
-
-  // Redirect unauthenticated users
-  const pathname = req.nextUrl.pathname;
-
-  // Define protected routes
-  const protectedRoutes = ["/account", "/admin"];
-  const isProtected = protectedRoutes.some((route) => pathname.startsWith(route));
-
-  // If no session and trying to access protected route, redirect to login
-  if (!session && isProtected && !pathname.includes("/login") && !pathname.includes("/signup")) {
-    const redirectUrl = new URL("/account/login", req.url);
-    redirectUrl.searchParams.set("redirectTo", pathname);
-    return NextResponse.redirect(redirectUrl);
+  // If user is not logged in and trying to access protected routes
+  if (
+    !session &&
+    (req.nextUrl.pathname.startsWith("/account") || req.nextUrl.pathname.startsWith("/admin")) &&
+    !req.nextUrl.pathname.includes("/account/login") &&
+    !req.nextUrl.pathname.includes("/account/signup")
+  ) {
+    const redirectUrl = new URL("/account/login", req.url)
+    redirectUrl.searchParams.set("redirectTo", req.nextUrl.pathname)
+    return NextResponse.redirect(redirectUrl)
   }
 
-  // If user is already logged in and trying to access login/signup pages, redirect to the account page
-  if (session && (pathname.includes("/login") || pathname.includes("/signup"))) {
-    return NextResponse.redirect(new URL("/account", req.url));
+  // If user is logged in and trying to access login/signup pages
+  if (
+    session &&
+    (req.nextUrl.pathname.includes("/account/login") || req.nextUrl.pathname.includes("/account/signup"))
+  ) {
+    return NextResponse.redirect(new URL("/account", req.url))
   }
 
-  return res;
+  // Handle category slug redirects for old URLs
+  // This is a simplified example - in a real app, you might want to check against a database of old slugs
+  if (req.nextUrl.pathname.startsWith("/xbox-games")) {
+    return NextResponse.redirect(new URL("/category/games/xbox-games", req.url))
+  }
+
+  if (req.nextUrl.pathname.startsWith("/gift-cards")) {
+    return NextResponse.redirect(new URL("/category/gift-cards", req.url))
+  }
+
+  if (req.nextUrl.pathname.startsWith("/streaming-services")) {
+    return NextResponse.redirect(new URL("/category/streaming-services", req.url))
+  }
+
+  if (req.nextUrl.pathname.startsWith("/game-points")) {
+    return NextResponse.redirect(new URL("/category/game-points", req.url))
+  }
+
+  if (req.nextUrl.pathname.startsWith("/software")) {
+    return NextResponse.redirect(new URL("/category/software", req.url))
+  }
+
+  return res
 }
 
 export const config = {
@@ -54,4 +83,4 @@ export const config = {
     "/game-points",
     "/software",
   ],
-};
+}

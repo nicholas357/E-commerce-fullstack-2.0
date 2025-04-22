@@ -147,58 +147,69 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     }
   }
 
-  // Sign up with email and password
- // Sign up with email and password
-const signUp = async (email: string, password: string, fullName: string) => {
-  try {
-    setIsLoading(true)
-    setError(null)
+  // Sign up with email and password - SIMPLIFIED APPROACH
+  const signUp = async (email: string, password: string, fullName: string) => {
+    try {
+      setIsLoading(true)
+      setError(null)
 
-    // Validate password length
-    if (password.length < 6) {
-      const errorMessage = "Password must be at least 6 characters long"
+      // Validate password length
+      if (password.length < 6) {
+        const errorMessage = "Password must be at least 6 characters long"
+        setError(errorMessage)
+        return { error: errorMessage }
+      }
+
+      // Use the built-in Supabase signup method
+      const { data, error: signUpError } = await supabase.auth.signUp({
+        email,
+        password,
+        options: {
+          data: {
+            full_name: fullName,
+          },
+        },
+      })
+
+      if (signUpError) {
+        throw signUpError
+      }
+
+      if (!data?.user) {
+        throw new Error("Failed to create user account")
+      }
+
+      // Try to create the profile manually
+      try {
+        await supabase.from("profiles").insert({
+          id: data.user.id,
+          full_name: fullName,
+          email: email,
+          role: "user",
+          created_at: new Date().toISOString(),
+          updated_at: new Date().toISOString(),
+        })
+      } catch (profileError) {
+        console.error("Error creating profile:", profileError)
+        // Continue even if profile creation fails - the trigger should handle it
+      }
+
+      addToast({
+        title: "Account created successfully",
+        description: "Welcome to TurGame!",
+        type: "success",
+      })
+
+      return {}
+    } catch (err: any) {
+      console.error("Error signing up:", err)
+      const errorMessage = err.message || "Failed to create account. Please try again."
       setError(errorMessage)
       return { error: errorMessage }
+    } finally {
+      setIsLoading(false)
     }
-
-    // First, sign up the user with Supabase Auth
-    const { data, error } = await supabase.auth.signUp({
-      email,
-      password,
-      options: {
-        data: {
-          full_name: fullName,
-        },
-      },
-    })
-
-    if (error) {
-      throw error
-    }
-
-    if (!data?.user) {
-      throw new Error("Failed to create user account")
-    }
-
-    // Here, you don't need to manually create the profile anymore. The trigger will handle that.
-
-    addToast({
-      title: "Account created successfully",
-      description: "Welcome to TurGame!",
-      type: "success",
-    })
-
-    return {}
-  } catch (err: any) {
-    console.error("Error signing up:", err)
-    const errorMessage = err.message || "Failed to create account. Please try again."
-    setError(errorMessage)
-    return { error: errorMessage }
-  } finally {
-    setIsLoading(false)
   }
-}
-
 
   // Sign in with Google
   const handleSignInWithGoogle = async () => {
