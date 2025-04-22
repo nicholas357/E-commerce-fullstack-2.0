@@ -5,75 +5,64 @@ import type { NextRequest } from "next/server"
 export async function middleware(req: NextRequest) {
   const res = NextResponse.next()
 
-  try {
-    // 🧠 Create Supabase client
-    const supabase = createMiddlewareClient({ req, res })
+  // 🧠 Create Supabase client with dynamic cookie settings
+  const supabase = createMiddlewareClient({
+    req,
+    res,
+    options: {
+      cookies: {
+        name: "sb",  // your cookie name
+        lifetime: 365 * 24 * 60 * 60, // cookie lifetime
+        domain: process.env.NODE_ENV === "production" ? "yourdomain.com" : "localhost",
+        path: "/",
+        sameSite: "Lax",  // recommended for cross-site sessions
+        secure: process.env.NODE_ENV === "production", // true in production, false in dev
+      },
+    },
+  })
 
-    // 📡 Try to get session
-    const {
-      data: { session },
-      error,
-    } = await supabase.auth.getSession()
+  // 📡 Try to get session
+  const {
+    data: { session },
+    error,
+  } = await supabase.auth.getSession()
 
-    // 🐞 Debug session
-    console.log("🔐 Session in middleware:", session?.user?.email || "No session")
-    console.log("📄 Requested Path:", req.nextUrl.pathname)
+  // 🐞 Debug session
+  console.log("🔐 Session in middleware:", session?.user?.email || "No session")
+  console.log("📄 Requested Path:", req.nextUrl.pathname)
 
-    // ❌ If there's an error fetching session
-    if (error) {
-      console.error("❌ Session fetch error:", error.message)
-    }
-
-    // 🔐 Route protection
-    const isProtectedRoute =
-      req.nextUrl.pathname.startsWith("/account") ||
-      req.nextUrl.pathname.startsWith("/admin") ||
-      req.nextUrl.pathname.startsWith("/dashboard") ||
-      req.nextUrl.pathname.startsWith("/profile") ||
-      req.nextUrl.pathname === "/checkout"
-
-    const isAuthPage =
-      req.nextUrl.pathname.includes("/account/login") ||
-      req.nextUrl.pathname.includes("/account/signup")
-
-    // 🔁 If NOT logged in and accessing a protected route
-    if (!session && isProtectedRoute && !isAuthPage) {
-      const redirectUrl = new URL("/account/login", req.url)
-      redirectUrl.searchParams.set("redirectTo", req.nextUrl.pathname)
-      console.log("➡️ Redirecting to login:", redirectUrl.toString())
-      return NextResponse.redirect(redirectUrl)
-    }
-
-    // 🚫 If logged in and accessing login/signup page, redirect to dashboard
-    if (session && isAuthPage) {
-      const dashboardUrl = new URL("/account", req.url)
-      console.log("✅ Already logged in, redirecting to:", dashboardUrl.toString())
-      return NextResponse.redirect(dashboardUrl)
-    }
-
-    // Legacy URL redirects (optional)
-    const legacyRedirects: Record<string, string> = {
-      "/xbox-games": "/category/games/xbox-games",
-      "/gift-cards": "/category/gift-cards",
-      "/streaming-services": "/category/streaming-services",
-      "/game-points": "/category/game-points",
-      "/software": "/category/software",
-    }
-
-    const redirectTarget = legacyRedirects[req.nextUrl.pathname]
-    if (redirectTarget) {
-      console.log("🧭 Redirecting legacy URL to:", redirectTarget)
-      return NextResponse.redirect(new URL(redirectTarget, req.url))
-    }
-
-    return res
-  } catch (err) {
-    console.error("❌ Middleware error:", err)
-    return NextResponse.error()
+  if (error) {
+    console.error("❌ Error fetching session:", error.message)
   }
+
+  // 🔐 Route protection logic
+  const isProtectedRoute =
+    req.nextUrl.pathname.startsWith("/account") ||
+    req.nextUrl.pathname.startsWith("/admin") ||
+    req.nextUrl.pathname.startsWith("/dashboard") ||
+    req.nextUrl.pathname.startsWith("/profile") ||
+    req.nextUrl.pathname === "/checkout"
+
+  const isAuthPage =
+    req.nextUrl.pathname.includes("/account/login") ||
+    req.nextUrl.pathname.includes("/account/signup")
+
+  // If session is not found and trying to access protected route, redirect to login
+  if (!session && isProtectedRoute && !isAuthPage) {
+    const redirectUrl = new URL("/account/login", req.url)
+    redirectUrl.searchParams.set("redirectTo", req.nextUrl.pathname)
+    return NextResponse.redirect(redirectUrl)
+  }
+
+  // If already logged in and trying to access login/signup, redirect to account
+  if (session && isAuthPage) {
+    const dashboardUrl = new URL("/account", req.url)
+    return NextResponse.redirect(dashboardUrl)
+  }
+
+  return res
 }
 
-// ✅ Apply to all relevant protected routes
 export const config = {
   matcher: [
     "/account/:path*",
@@ -81,10 +70,5 @@ export const config = {
     "/dashboard/:path*",
     "/profile/:path*",
     "/checkout",
-    "/xbox-games",
-    "/gift-cards",
-    "/streaming-services",
-    "/game-points",
-    "/software",
   ],
 }
