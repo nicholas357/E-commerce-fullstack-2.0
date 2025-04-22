@@ -17,16 +17,18 @@ export async function middleware(req: NextRequest) {
         lifetime: 60 * 60 * 24 * 7, // 7 days
         domain: process.env.NODE_ENV === "production" ? req.headers.get("host")?.split(":")[0] : undefined,
         path: "/",
-        sameSite: "lax",
-        secure: process.env.NODE_ENV === "production",
+        sameSite: "None",  // Use "None" for cross-site cookies
+        secure: process.env.NODE_ENV === "production",  // Secure for production
       },
     },
   )
 
-  // Refresh the session if it exists
-  const {
-    data: { session },
-  } = await supabase.auth.getSession()
+  // Fetch session data and handle errors
+  const { data: { session }, error } = await supabase.auth.getSession()
+  if (error) {
+    console.error('Session fetch error:', error.message)
+    // Optional: Handle the error, maybe redirect to login or show an error page
+  }
 
   // If user is not logged in and trying to access protected routes
   if (
@@ -49,7 +51,6 @@ export async function middleware(req: NextRequest) {
   }
 
   // Handle category slug redirects for old URLs
-  // This is a simplified example - in a real app, you might want to check against a database of old slugs
   if (req.nextUrl.pathname.startsWith("/xbox-games")) {
     return NextResponse.redirect(new URL("/category/games/xbox-games", req.url))
   }
@@ -69,6 +70,10 @@ export async function middleware(req: NextRequest) {
   if (req.nextUrl.pathname.startsWith("/software")) {
     return NextResponse.redirect(new URL("/category/software", req.url))
   }
+
+  // Log session and requested path for debugging
+  console.log('Session:', session)
+  console.log('Requested Path:', req.nextUrl.pathname)
 
   return res
 }
