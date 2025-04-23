@@ -24,11 +24,12 @@ export async function middleware(req: NextRequest) {
   )
 
   // Refresh the session if it exists
+  await supabase.auth.getSession()
+
+  // If user is not logged in and trying to access protected routes
   const {
     data: { session },
   } = await supabase.auth.getSession()
-
-  // If user is not logged in and trying to access protected routes
   if (
     !session &&
     (req.nextUrl.pathname.startsWith("/account") || req.nextUrl.pathname.startsWith("/admin")) &&
