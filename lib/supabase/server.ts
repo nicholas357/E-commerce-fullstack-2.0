@@ -23,9 +23,11 @@ export function createServerClient(reqCookies?: string, resCookies?: Array<strin
       set(name, value, options) {
         if (!resCookies) return
 
+        // Stringify the value before storing it in the cookie
+        const stringValue = typeof value === "object" ? JSON.stringify(value) : String(value)
         // Add the cookie to the response with proper security settings
         resCookies.push(
-          serialize(name, value, {
+          serialize(name, stringValue, {
             path: "/",
             httpOnly: true,
             secure: process.env.NODE_ENV === "production",
