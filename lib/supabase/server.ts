@@ -15,7 +15,7 @@ export function createServerClient(reqCookies?: string, resCookies?: Array<strin
   const cookies = reqCookies ? parse(reqCookies || "") : {}
 
   // Create a cookie manager compatible with Pages Router
-  return createSupabaseServerClient(supabaseUrl, supabaseKey, {
+  const supabaseClient = createSupabaseServerClient(supabaseUrl, supabaseKey, {
     cookies: {
       get(name) {
         return cookies[name]
@@ -54,9 +54,14 @@ export function createServerClient(reqCookies?: string, resCookies?: Array<strin
       },
     },
   })
+
+  return supabaseClient
 }
 
 // For backward compatibility
 export const createClient = (reqCookies?: string, resCookies?: Array<string>) => {
   return createServerClient(reqCookies, resCookies)
 }
+
+export { createSupabaseServerClient }
+export { createServerClient as createServerSupabaseClient }
