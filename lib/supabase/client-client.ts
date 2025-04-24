@@ -1,57 +1,48 @@
-import { createBrowserClient } from "@supabase/ssr";
-import { getEnv } from "@/lib/config";
+import { createBrowserClient } from "@supabase/ssr"
+import { getEnv } from "@/lib/config"
 
-// Singleton instance
-let supabaseClient: ReturnType<typeof createBrowserClient> | null = null;
+// Create a singleton instance of the Supabase client
+let supabaseClient: ReturnType<typeof createBrowserClient> | null = null
 
 function getClientClient() {
-  if (supabaseClient) return supabaseClient;
+  if (supabaseClient) return supabaseClient
 
-  const supabaseUrl = getEnv("NEXT_PUBLIC_SUPABASE_URL");
-  const supabaseKey = getEnv("NEXT_PUBLIC_SUPABASE_ANON_KEY");
+  const supabaseUrl = getEnv("NEXT_PUBLIC_SUPABASE_URL")
+  const supabaseKey = getEnv("NEXT_PUBLIC_SUPABASE_ANON_KEY")
 
   if (!supabaseUrl || !supabaseKey) {
-    throw new Error("Supabase URL or anon key is missing in environment variables");
+    throw new Error("Supabase URL or anon key is missing in environment variables")
   }
 
   supabaseClient = createBrowserClient(supabaseUrl, supabaseKey, {
     cookies: {
       get(name: string) {
-        const cookies = document.cookie.split(";").map((c) => c.trim());
-        const cookie = cookies.find((c) => c.startsWith(`${name}=`));
-        if (!cookie) return null;
-
-        const encoded = cookie.split("=")[1];
-        try {
-          const decoded = atob(decodeURIComponent(encoded)); // base64 decode
-          return JSON.parse(decoded);
-        } catch (err) {
-          console.error("Failed to parse cookie", err);
-          return null;
-        }
+        const cookies = document.cookie.split(";").reduce((acc, cookie) => {
+          const [key, value] = cookie.trim().split("=")
+          if (key === name) {
+            try {
+              return JSON.parse(decodeURIComponent(value))
+            } catch (e) {
+              return decodeURIComponent(value)
+            }
+          }
+          return acc
+        }, {})
+        return cookies[name] || null
       },
       set(name, value, options) {
-        try {
-          const json = JSON.stringify(value);
-          const base64 = btoa(json);
-          const encodedValue = encodeURIComponent(base64);
-          const maxAge = options?.maxAge || 31536000; // 1 year
-          const path = options?.path || "/";
-          const secure = location.protocol === "https:" ? " Secure;" : "";
-          document.cookie = `${name}=${encodedValue}; path=${path}; max-age=${maxAge}; SameSite=Lax;${secure}`;
-        } catch (err) {
-          console.error("Failed to encode cookie", err);
-        }
+        const safeValue = typeof value === "object" ? JSON.stringify(value) : String(value)
+        const encodedValue = encodeURIComponent(safeValue)
+        document.cookie = `${name}=${encodedValue}; path=${options?.path || "/"}; max-age=${options?.maxAge || 31536000}; SameSite=Lax;${options?.secure ? " Secure" : ""}`
       },
       remove(name, options) {
-        const path = options?.path || "/";
-        const secure = location.protocol === "https:" ? " Secure;" : "";
-        document.cookie = `${name}=; path=${path}; max-age=0; SameSite=Lax;${secure}`;
+        document.cookie = `${name}=; path=${options?.path || "/"}; max-age=0; SameSite=Lax;${options?.secure ? " Secure" : ""}`
       },
     },
-  });
+  })
 
-  return supabaseClient;
+  return supabaseClient
 }
 
-export const getSupabaseClient = getClientClient;
+// Add the missing export with the expected name
+export const getSupabaseClient = getClientClient
