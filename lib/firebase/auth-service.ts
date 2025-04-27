@@ -1,190 +1,213 @@
 "use client"
 
-import { getFirebase } from "./firebase-client"
-import type { User } from "@/types/user"
+import { initializeApp, getApps, getApp } from "firebase/app"
+import {
+  getAuth,
+  signInWithEmailAndPassword,
+  createUserWithEmailAndPassword,
+  signOut,
+  onAuthStateChanged,
+  GoogleAuthProvider,
+  signInWithPopup,
+  sendPasswordResetEmail,
+  updateProfile,
+  type User as FirebaseUser,
+  sendEmailVerification,
+  deleteUser,
+} from "firebase/auth"
+import { firebaseConfig } from "./config"
 
-// Helper function to convert Firebase user to our User type
-const mapFirebaseUser = (firebaseUser: any, role = "user"): User => {
-  return {
-    id: firebaseUser.uid,
-    email: firebaseUser.email || "",
-    name: firebaseUser.displayName || "",
-    role,
+// Initialize Firebase
+const app = !getApps().length ? initializeApp(firebaseConfig) : getApp()
+const auth = getAuth(app)
+const googleProvider = new GoogleAuthProvider()
+
+export type AuthError = {
+  code: string
+  message: string
+}
+
+// Sign in with email and password
+export async function signInWithEmail(
+  email: string,
+  password: string,
+): Promise<{ user: FirebaseUser | null; error: AuthError | null }> {
+  try {
+    const userCredential = await signInWithEmailAndPassword(auth, email, password)
+    return { user: userCredential.user, error: null }
+  } catch (error: any) {
+    return {
+      user: null,
+      error: {
+        code: error.code || "auth/unknown",
+        message: error.message || "An unknown error occurred",
+      },
+    }
   }
 }
 
-export const authService = {
-  // Get current user
-  getCurrentUser: async (): Promise<{ user: User | null; error: string | null }> => {
-    try {
-      const { auth, firestore } = await getFirebase()
-      if (!auth) {
-        return { user: null, error: "Firebase Auth not initialized" }
-      }
+// Sign up with email and password
+export async function signUpWithEmail(
+  email: string,
+  password: string,
+  fullName: string,
+): Promise<{ user: FirebaseUser | null; error: AuthError | null }> {
+  try {
+    const userCredential = await createUserWithEmailAndPassword(auth, email, password)
 
-      return new Promise((resolve) => {
-        const unsubscribe = auth.onAuthStateChanged(
-          async (firebaseUser: any) => {
-            unsubscribe()
-            if (!firebaseUser) {
-              resolve({ user: null, error: null })
-              return
-            }
+    // Update the user's profile with their full name
+    await updateProfile(userCredential.user, {
+      displayName: fullName,
+    })
 
-            try {
-              if (!firestore) {
-                const user = mapFirebaseUser(firebaseUser)
-                resolve({ user, error: null })
-                return
-              }
+    // Send email verification
+    await sendEmailVerification(userCredential.user)
 
-              const userDoc = await firestore.collection("users").doc(firebaseUser.uid).get()
-              const userData = userDoc.exists ? userDoc.data() : null
-              const role = userData?.role || "user"
+    // Create user profile in Supabase
+    await createUserProfile(userCredential.user.uid, {
+      full_name: fullName,
+      email,
+      role: "user",
+    })
 
-              const user = mapFirebaseUser(firebaseUser, role)
-              resolve({ user, error: null })
-            } catch (error: any) {
-              console.error("Error getting user data:", error)
-              resolve({ user: null, error: error.message })
-            }
-          },
-          (error: any) => {
-            console.error("Auth state change error:", error)
-            resolve({ user: null, error: error.message })
-          },
-        )
+    return { user: userCredential.user, error: null }
+  } catch (error: any) {
+    return {
+      user: null,
+      error: {
+        code: error.code || "auth/unknown",
+        message: error.message || "An unknown error occurred",
+      },
+    }
+  }
+}
+
+// Sign in with Google
+export async function signInWithGoogle(): Promise<{ user: FirebaseUser | null; error: AuthError | null }> {
+  try {
+    const userCredential = await signInWithPopup(auth, googleProvider)
+
+    // Check if this is a new user (first time sign in)
+    const isNewUser = userCredential.user.metadata.creationTime === userCredential.user.metadata.lastSignInTime
+
+    if (isNewUser) {
+      // Create user profile in Supabase
+      await createUserProfile(userCredential.user.uid, {
+        full_name: userCredential.user.displayName || "",
+        email: userCredential.user.email || "",
+        avatar_url: userCredential.user.photoURL || "",
+        role: "user",
       })
-    } catch (error: any) {
-      console.error("Error in getCurrentUser:", error)
-      return { user: null, error: error.message }
     }
-  },
 
-  // Sign in with email and password
-  signInWithEmail: async (email: string, password: string): Promise<{ user: User | null; error: string | null }> => {
-    try {
-      const { auth, firestore } = await getFirebase()
-      if (!auth) {
-        return { user: null, error: "Firebase Auth not initialized" }
-      }
-
-      const userCredential = await auth.signInWithEmailAndPassword(email, password)
-      const firebaseUser = userCredential.user
-
-      if (!firestore) {
-        const user = mapFirebaseUser(firebaseUser)
-        return { user, error: null }
-      }
-
-      const userDoc = await firestore.collection("users").doc(firebaseUser.uid).get()
-      const userData = userDoc.exists ? userDoc.data() : null
-      const role = userData?.role || "user"
-
-      const user = mapFirebaseUser(firebaseUser, role)
-      return { user, error: null }
-    } catch (error: any) {
-      console.error("Sign in error:", error)
-      return { user: null, error: error.message }
+    return { user: userCredential.user, error: null }
+  } catch (error: any) {
+    return {
+      user: null,
+      error: {
+        code: error.code || "auth/unknown",
+        message: error.message || "An unknown error occurred",
+      },
     }
-  },
+  }
+}
 
-  // Sign up with email and password
-  signUpWithEmail: async (
-    email: string,
-    password: string,
-    name: string,
-  ): Promise<{ user: User | null; error: string | null }> => {
-    try {
-      const { auth, firestore } = await getFirebase()
-      if (!auth) {
-        return { user: null, error: "Firebase Auth not initialized" }
-      }
-
-      const userCredential = await auth.createUserWithEmailAndPassword(email, password)
-      const firebaseUser = userCredential.user
-
-      // Update profile with name
-      await firebaseUser.updateProfile({ displayName: name })
-
-      if (firestore) {
-        // Create user document in Firestore
-        await firestore.collection("users").doc(firebaseUser.uid).set({
-          name,
-          email,
-          role: "user",
-          createdAt: new Date(),
-        })
-      }
-
-      const user = mapFirebaseUser(firebaseUser)
-      return { user, error: null }
-    } catch (error: any) {
-      console.error("Sign up error:", error)
-      return { user: null, error: error.message }
+// Sign out
+export async function signOutUser(): Promise<{ error: AuthError | null }> {
+  try {
+    await signOut(auth)
+    return { error: null }
+  } catch (error: any) {
+    return {
+      error: {
+        code: error.code || "auth/unknown",
+        message: error.message || "An unknown error occurred",
+      },
     }
-  },
+  }
+}
 
-  // Sign in with Google
-  signInWithGoogle: async (): Promise<{ user: User | null; error: string | null }> => {
-    try {
-      const { auth, firestore } = await getFirebase()
-      if (!auth) {
-        return { user: null, error: "Firebase Auth not initialized" }
-      }
-
-      const GoogleAuthProvider = (await import("firebase/auth")).GoogleAuthProvider
-      const provider = new GoogleAuthProvider()
-
-      const userCredential = await auth.signInWithPopup(provider)
-      const firebaseUser = userCredential.user
-
-      if (firestore) {
-        // Check if user document exists
-        const userDoc = await firestore.collection("users").doc(firebaseUser.uid).get()
-
-        if (!userDoc.exists) {
-          // Create user document if it doesn't exist
-          await firestore.collection("users").doc(firebaseUser.uid).set({
-            name: firebaseUser.displayName,
-            email: firebaseUser.email,
-            role: "user",
-            createdAt: new Date(),
-          })
-        }
-
-        const userData = userDoc.exists ? userDoc.data() : null
-        const role = userData?.role || "user"
-        const user = mapFirebaseUser(firebaseUser, role)
-        return { user, error: null }
-      }
-
-      const user = mapFirebaseUser(firebaseUser)
-      return { user, error: null }
-    } catch (error: any) {
-      console.error("Google sign in error:", error)
-      return { user: null, error: error.message }
+// Send password reset email
+export async function resetPassword(email: string): Promise<{ error: AuthError | null }> {
+  try {
+    await sendPasswordResetEmail(auth, email)
+    return { error: null }
+  } catch (error: any) {
+    return {
+      error: {
+        code: error.code || "auth/unknown",
+        message: error.message || "An unknown error occurred",
+      },
     }
-  },
+  }
+}
 
-  // Sign out
-  signOut: async (): Promise<{ error: string | null }> => {
-    try {
-      const { auth } = await getFirebase()
-      if (!auth) {
-        return { error: "Firebase Auth not initialized" }
-      }
-
-      await auth.signOut()
-      return { error: null }
-    } catch (error: any) {
-      console.error("Sign out error:", error)
-      return { error: error.message }
+// Delete current user
+export async function deleteCurrentUser(): Promise<{ error: AuthError | null }> {
+  try {
+    const user = auth.currentUser
+    if (!user) {
+      throw new Error("No user is currently signed in")
     }
-  },
 
-  // Check if user is admin
-  isAdmin: (user: User | null): boolean => {
-    return user?.role === "admin"
-  },
+    await deleteUser(user)
+    return { error: null }
+  } catch (error: any) {
+    return {
+      error: {
+        code: error.code || "auth/unknown",
+        message: error.message || "An unknown error occurred",
+      },
+    }
+  }
+}
+
+// Get the current user
+export function getCurrentUser(): FirebaseUser | null {
+  return auth.currentUser
+}
+
+// Listen for auth state changes
+export function onAuthStateChange(callback: (user: FirebaseUser | null) => void): () => void {
+  return onAuthStateChanged(auth, callback)
+}
+
+// Get ID token for the current user
+export async function getIdToken(): Promise<string | null> {
+  const user = auth.currentUser
+  if (!user) return null
+
+  try {
+    return await user.getIdToken()
+  } catch (error) {
+    console.error("Error getting ID token:", error)
+    return null
+  }
+}
+
+// Create user profile in Supabase
+async function createUserProfile(uid: string, profileData: any): Promise<void> {
+  try {
+    const token = await getIdToken()
+
+    const response = await fetch("/api/auth/create-profile", {
+      method: "POST",
+      headers: {
+        "Content-Type": "application/json",
+        Authorization: token ? `Bearer ${token}` : "",
+      },
+      body: JSON.stringify({
+        uid,
+        ...profileData,
+      }),
+    })
+
+    if (!response.ok) {
+      const error = await response.json()
+      throw new Error(error.message || "Failed to create user profile")
+    }
+  } catch (error) {
+    console.error("Error creating user profile:", error)
+    throw error
+  }
 }

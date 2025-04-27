@@ -4,10 +4,9 @@ import type React from "react"
 
 import { useState, useEffect } from "react"
 import Link from "next/link"
-import { useRouter } from "next/navigation"
+import { useRouter, useSearchParams } from "next/navigation"
 import { Eye, EyeOff, Mail, Lock } from "lucide-react"
 import { GamingButton } from "@/components/ui/gaming-button"
-import { GoogleLoginButton } from "@/components/google-login-button"
 import { useAuth } from "@/context/auth-context"
 
 export default function LoginPage() {
@@ -16,18 +15,10 @@ export default function LoginPage() {
   const [showPassword, setShowPassword] = useState(false)
   const [isSubmitting, setIsSubmitting] = useState(false)
   const [formError, setFormError] = useState("")
-  const { signIn, user } = useAuth()
+  const { signIn, user, signInWithGoogle } = useAuth()
   const router = useRouter()
-  const [redirectPath, setRedirectPath] = useState("/account")
-
-  // Check if there's a redirect path in localStorage
-  useEffect(() => {
-    const storedRedirectPath = localStorage.getItem("redirectAfterLogin")
-    if (storedRedirectPath) {
-      setRedirectPath(storedRedirectPath)
-      localStorage.removeItem("redirectAfterLogin")
-    }
-  }, [])
+  const searchParams = useSearchParams()
+  const redirectPath = searchParams?.get("redirectTo") || "/account"
 
   // Redirect if already logged in
   useEffect(() => {
@@ -58,6 +49,14 @@ export default function LoginPage() {
       setFormError(error.message || "An error occurred during sign in")
     } finally {
       setIsSubmitting(false)
+    }
+  }
+
+  const handleGoogleSignIn = async () => {
+    try {
+      await signInWithGoogle()
+    } catch (error: any) {
+      setFormError(error.message || "An error occurred during Google sign in")
     }
   }
 
@@ -162,7 +161,13 @@ export default function LoginPage() {
           </div>
 
           <div className="mt-6">
-            <GoogleLoginButton />
+            <button
+              onClick={handleGoogleSignIn}
+              className="flex w-full items-center justify-center rounded-md border border-border bg-background py-2 px-4 text-sm font-medium text-white hover:bg-gray-800 focus:outline-none focus:ring-2 focus:ring-amber-500 focus:ring-offset-2"
+            >
+              <img src="/images/google-logo.png" alt="Google" className="mr-2 h-5 w-5" />
+              Sign in with Google
+            </button>
           </div>
         </div>
 

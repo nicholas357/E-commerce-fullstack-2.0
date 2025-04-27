@@ -15,7 +15,7 @@ export function createServerClient(reqCookies?: string, resCookies?: Array<strin
   const cookies = reqCookies ? parse(reqCookies || "") : {}
 
   // Create a cookie manager compatible with Pages Router
-  const supabaseClient = createSupabaseServerClient(supabaseUrl, supabaseKey, {
+  return createSupabaseServerClient(supabaseUrl, supabaseKey, {
     cookies: {
       get(name) {
         return cookies[name]
@@ -23,11 +23,9 @@ export function createServerClient(reqCookies?: string, resCookies?: Array<strin
       set(name, value, options) {
         if (!resCookies) return
 
-        // Stringify the value before storing it in the cookie
-        const stringValue = typeof value === "object" ? JSON.stringify(value) : String(value)
         // Add the cookie to the response with proper security settings
         resCookies.push(
-          serialize(name, stringValue, {
+          serialize(name, value, {
             path: "/",
             httpOnly: true,
             secure: process.env.NODE_ENV === "production",
@@ -54,14 +52,9 @@ export function createServerClient(reqCookies?: string, resCookies?: Array<strin
       },
     },
   })
-
-  return supabaseClient
 }
 
 // For backward compatibility
 export const createClient = (reqCookies?: string, resCookies?: Array<string>) => {
   return createServerClient(reqCookies, resCookies)
 }
-
-export { createSupabaseServerClient }
-export { createServerClient as createServerSupabaseClient }

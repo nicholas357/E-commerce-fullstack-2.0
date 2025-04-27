@@ -1,11 +1,10 @@
 // Firebase configuration
 export const firebaseConfig = {
-  apiKey: "AIzaSyDoL2Ra62bQIOU9heqnjKU6Thzi0nerfMY",
-  authDomain: "auth-react-7cc39.firebaseapp.com",
-  databaseURL: "https://auth-react-7cc39-default-rtdb.firebaseio.com",
-  projectId: "auth-react-7cc39",
-  storageBucket: "auth-react-7cc39.appspot.com",
-  messagingSenderId: "344061187006",
-  appId: "1:344061187006:web:2d14c1adb41d073eb55fef",
-  measurementId: "G-K2YNHBDN15",
+  apiKey: process.env.NEXT_PUBLIC_FIREBASE_API_KEY,
+  authDomain: process.env.NEXT_PUBLIC_FIREBASE_AUTH_DOMAIN,
+  projectId: process.env.NEXT_PUBLIC_FIREBASE_PROJECT_ID,
+  storageBucket: process.env.NEXT_PUBLIC_FIREBASE_STORAGE_BUCKET,
+  messagingSenderId: process.env.NEXT_PUBLIC_FIREBASE_MESSAGING_SENDER_ID,
+  appId: process.env.NEXT_PUBLIC_FIREBASE_APP_ID,
+  measurementId: process.env.NEXT_PUBLIC_FIREBASE_MEASUREMENT_ID,
 }

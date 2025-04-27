@@ -4,7 +4,7 @@ import { getEnv } from "@/lib/config"
 // Create a singleton instance of the Supabase client
 let supabaseClient: ReturnType<typeof createBrowserClient> | null = null
 
-function getClientClient() {
+export function getClientClient() {
   if (supabaseClient) return supabaseClient
 
   const supabaseUrl = getEnv("NEXT_PUBLIC_SUPABASE_URL")
@@ -14,29 +14,28 @@ function getClientClient() {
     throw new Error("Supabase URL or anon key is missing in environment variables")
   }
 
+  // Create browser client with proper cookie settings
   supabaseClient = createBrowserClient(supabaseUrl, supabaseKey, {
     cookies: {
-      get(name: string) {
-        const cookies = document.cookie.split(";").reduce((acc, cookie) => {
-          const [key, value] = cookie.trim().split("=")
-          if (key === name) {
-            try {
-              return JSON.parse(decodeURIComponent(value))
-            } catch (e) {
-              return decodeURIComponent(value)
-            }
-          }
-          return acc
-        }, {})
-        return cookies[name] || null
+      get(name) {
+        // Parse cookies from document.cookie
+        const cookies = document.cookie.split(";").reduce(
+          (acc, cookie) => {
+            const [key, value] = cookie.trim().split("=")
+            if (key) acc[key] = decodeURIComponent(value || "")
+            return acc
+          },
+          {} as Record<string, string>,
+        )
+        return cookies[name]
       },
       set(name, value, options) {
-        const safeValue = typeof value === "object" ? JSON.stringify(value) : String(value)
-        const encodedValue = encodeURIComponent(safeValue)
-        document.cookie = `${name}=${encodedValue}; path=${options?.path || "/"}; max-age=${options?.maxAge || 31536000}; SameSite=Lax;${options?.secure ? " Secure" : ""}`
+        // Set cookie with proper attributes
+        document.cookie = `${name}=${encodeURIComponent(value)}; path=${options?.path || "/"}; max-age=${options?.maxAge || 315360000}${options?.domain ? `; domain=${options.domain}` : ""}${options?.sameSite ? `; samesite=${options.sameSite}` : "; samesite=lax"}${options?.secure || location.protocol === "https:" ? "; secure" : ""}`
       },
       remove(name, options) {
-        document.cookie = `${name}=; path=${options?.path || "/"}; max-age=0; SameSite=Lax;${options?.secure ? " Secure" : ""}`
+        // Remove cookie by setting expiry in the past
+        document.cookie = `${name}=; path=${options?.path || "/"}; max-age=-1${options?.domain ? `; domain=${options.domain}` : ""}${options?.sameSite ? `; samesite=${options.sameSite}` : "; samesite=lax"}${options?.secure || location.protocol === "https:" ? "; secure" : ""}`
       },
     },
   })
