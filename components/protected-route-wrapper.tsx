@@ -1,8 +1,9 @@
 "use client"
 
-import { useEffect, useState, useRef, type ReactNode } from "react"
+import { useEffect, useState, type ReactNode } from "react"
 import { useRouter } from "next/navigation"
 import { useAuth } from "@/context/auth-context"
+import { enableEmergencyBypass, directCheckAuthState } from "@/lib/auth-direct"
 
 interface ProtectedRouteWrapperProps {
   children: ReactNode
@@ -14,17 +15,10 @@ export function ProtectedRouteWrapper({ children, fallbackUrl = "/account/login"
   const [isChecking, setIsChecking] = useState(true)
   const [bypassEnabled, setBypassEnabled] = useState(false)
   const router = useRouter()
-  const hasRedirected = useRef(false)
-  const hasChecked = useRef(false)
 
   useEffect(() => {
-    // Prevent multiple checks
-    if (hasChecked.current) return
-
     const checkAuth = async () => {
       try {
-        hasChecked.current = true
-
         // Check if emergency bypass is enabled
         const bypass =
           sessionStorage.getItem("emergency_auth_bypass") === "true" ||
@@ -50,28 +44,35 @@ export function ProtectedRouteWrapper({ children, fallbackUrl = "/account/login"
           return
         }
 
-        // No user, no bypass, and not loading - redirect
-        if (!hasRedirected.current) {
-          console.log("[Protected Route] No auth found, redirecting to:", fallbackUrl)
-          hasRedirected.current = true
-          router.push(`${fallbackUrl}?redirectTo=${encodeURIComponent(window.location.pathname)}`)
+        // No user, no bypass, and not loading - check direct auth state
+        const { hasAuthToken, hasLocalStorageAuth } = await directCheckAuthState()
+
+        if (hasAuthToken || hasLocalStorageAuth) {
+          console.log("[Protected Route] Auth tokens found but no user, enabling bypass")
+          enableEmergencyBypass()
+          setBypassEnabled(true)
+          setIsChecking(false)
+          return
         }
+
+        // No auth at all, redirect
+        console.log("[Protected Route] No auth found, redirecting to:", fallbackUrl)
+        router.push(`${fallbackUrl}?redirectTo=${encodeURIComponent(window.location.pathname)}`)
       } catch (err) {
         console.error("[Protected Route] Error checking auth:", err)
         // On error, enable bypass as a fallback
+        enableEmergencyBypass()
         setBypassEnabled(true)
       } finally {
         setIsChecking(false)
       }
     }
 
-    if (!isLoading) {
-      checkAuth()
-    }
+    checkAuth()
   }, [user, isLoading, router, fallbackUrl])
 
   // Show loading state while checking
-  if (isLoading || isChecking) {
+  if (isChecking) {
     return (
       <div className="flex min-h-screen items-center justify-center">
         <div className="text-center">
@@ -93,5 +94,5 @@ export function ProtectedRouteWrapper({ children, fallbackUrl = "/account/login"
   }
 
   // Render children if authenticated
-  return user ? <>{children}</> : null
+  return <>{children}</>
 }

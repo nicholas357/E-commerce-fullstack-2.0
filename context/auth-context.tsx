@@ -1,10 +1,11 @@
 "use client"
 
-import { createContext, useContext, useState, useEffect, useRef, type ReactNode } from "react"
+import { createContext, useContext, useState, useEffect, type ReactNode } from "react"
 import { useRouter } from "next/navigation"
 import { useToast } from "@/components/ui/toast-provider"
 import { createClient } from "@/lib/supabase/client"
 import { checkSessionStatus, refreshSession } from "@/lib/supabase/client-client"
+import { storeUserInCookie, getUserFromCookie, isDirectlyAuthenticated } from "@/lib/direct-auth"
 
 // Define the User type
 type User = {
@@ -28,6 +29,10 @@ type AuthContextType = {
     lastChecked: string | null
     refreshAttempts: number
   }
+  directAuth: {
+    enabled: boolean
+    user: any
+  }
   debugMode: boolean
   toggleDebugMode: () => void
   signIn: (email: string, password: string) => Promise<{ error?: string }>
@@ -41,38 +46,6 @@ type AuthContextType = {
 // Create the AuthContext
 const AuthContext = createContext<AuthContextType | undefined>(undefined)
 
-// Helper function to get user from cookie/localStorage
-function getUserFromStorage(): User | null {
-  if (typeof window === "undefined") return null
-
-  try {
-    // Try to get from localStorage first
-    const storedUser = localStorage.getItem("turgame_user")
-    if (storedUser) {
-      return JSON.parse(storedUser)
-    }
-    return null
-  } catch (err) {
-    console.error("[Auth] Error getting user from storage:", err)
-    return null
-  }
-}
-
-// Helper function to store user in cookie/localStorage
-function storeUserInStorage(user: User | null): void {
-  if (typeof window === "undefined") return
-
-  try {
-    if (user) {
-      localStorage.setItem("turgame_user", JSON.stringify(user))
-    } else {
-      localStorage.removeItem("turgame_user")
-    }
-  } catch (err) {
-    console.error("[Auth] Error storing user in storage:", err)
-  }
-}
-
 // Create the AuthProvider component
 export function AuthProvider({ children }: { children: ReactNode }) {
   const [user, setUser] = useState<User | null>(null)
@@ -80,6 +53,10 @@ export function AuthProvider({ children }: { children: ReactNode }) {
   const [isLoading, setIsLoading] = useState(true)
   const [error, setError] = useState<string | null>(null)
   const [debugMode, setDebugMode] = useState(false)
+  const [directAuth, setDirectAuth] = useState({
+    enabled: false,
+    user: null as any,
+  })
   const [sessionStatus, setSessionStatus] = useState({
     hasSession: false,
     expiresAt: null as string | null,
@@ -89,10 +66,6 @@ export function AuthProvider({ children }: { children: ReactNode }) {
   const router = useRouter()
   const { addToast } = useToast()
   const supabase = createClient()
-
-  // Use refs to track initialization and prevent infinite loops
-  const isInitialized = useRef(false)
-  const checkingSession = useRef(false)
 
   // Check if the user is an admin
   const isAdmin = user?.role === "admin"
@@ -104,27 +77,49 @@ export function AuthProvider({ children }: { children: ReactNode }) {
 
   // Function to check session status
   const checkSession = async () => {
-    if (checkingSession.current) return false
-
     try {
-      checkingSession.current = true
       console.log("[Auth] Checking session status")
 
-      // First check if we have a stored user
-      const storedUser = getUserFromStorage()
-      if (storedUser && !user) {
-        console.log("[Auth] Found stored user:", storedUser.id)
-        setUser(storedUser)
-        setProfile(storedUser)
-        setSessionStatus((prev) => ({
-          ...prev,
-          hasSession: true,
-          lastChecked: new Date().toISOString(),
-        }))
-        checkingSession.current = false
-        return true
+      // First check direct auth
+      const directUser = getUserFromCookie()
+      if (directUser) {
+        console.log("[Auth] Found direct auth user:", directUser.id)
+        setDirectAuth({
+          enabled: true,
+          user: directUser,
+        })
+
+        // If we don't have a user in state yet, set it from direct auth
+        if (!user) {
+          console.log("[Auth] Setting user from direct auth")
+          setUser({
+            id: directUser.id,
+            email: directUser.email,
+            full_name: directUser.full_name,
+            avatar_url: directUser.avatar_url || "",
+            role: directUser.role || "user",
+          })
+
+          setProfile({
+            id: directUser.id,
+            email: directUser.email,
+            full_name: directUser.full_name,
+            avatar_url: directUser.avatar_url || "",
+            role: directUser.role || "user",
+          })
+
+          setSessionStatus({
+            hasSession: true,
+            expiresAt: new Date(Date.now() + 24 * 60 * 60 * 1000).toISOString(), // 24 hours from now
+            lastChecked: new Date().toISOString(),
+            refreshAttempts: 0,
+          })
+
+          return true
+        }
       }
 
+      // Then check normal session
       const { data, error } = await checkSessionStatus()
 
       const hasSession = Boolean(data.session)
@@ -141,36 +136,55 @@ export function AuthProvider({ children }: { children: ReactNode }) {
         console.error("[Auth] Session check error:", error)
       }
 
-      return hasSession || Boolean(storedUser)
+      return hasSession || Boolean(directUser)
     } catch (err) {
       console.error("[Auth] Error checking session:", err)
-      return Boolean(getUserFromStorage())
-    } finally {
-      checkingSession.current = false
+      return isDirectlyAuthenticated()
     }
   }
 
   // Function to refresh the user session
   const refreshUserSession = async () => {
-    if (checkingSession.current) return false
-
     try {
-      checkingSession.current = true
       console.log("[Auth] Attempting to refresh session")
 
-      // First check if we have a stored user
-      const storedUser = getUserFromStorage()
-      if (storedUser && !user) {
-        console.log("[Auth] Found stored user during refresh:", storedUser.id)
-        setUser(storedUser)
-        setProfile(storedUser)
-        setSessionStatus((prev) => ({
-          ...prev,
-          hasSession: true,
-          lastChecked: new Date().toISOString(),
-        }))
-        checkingSession.current = false
-        return true
+      // First check direct auth
+      const directUser = getUserFromCookie()
+      if (directUser) {
+        console.log("[Auth] Found direct auth user during refresh:", directUser.id)
+        setDirectAuth({
+          enabled: true,
+          user: directUser,
+        })
+
+        // If we don't have a user in state yet, set it from direct auth
+        if (!user) {
+          console.log("[Auth] Setting user from direct auth during refresh")
+          setUser({
+            id: directUser.id,
+            email: directUser.email,
+            full_name: directUser.full_name,
+            avatar_url: directUser.avatar_url || "",
+            role: directUser.role || "user",
+          })
+
+          setProfile({
+            id: directUser.id,
+            email: directUser.email,
+            full_name: directUser.full_name,
+            avatar_url: directUser.avatar_url || "",
+            role: directUser.role || "user",
+          })
+
+          setSessionStatus({
+            hasSession: true,
+            expiresAt: new Date(Date.now() + 24 * 60 * 60 * 1000).toISOString(), // 24 hours from now
+            lastChecked: new Date().toISOString(),
+            refreshAttempts: 0,
+          })
+
+          return true
+        }
       }
 
       setSessionStatus((prev) => ({
@@ -182,7 +196,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
 
       if (error) {
         console.error("[Auth] Session refresh error:", error)
-        return Boolean(storedUser)
+        return Boolean(directUser)
       }
 
       if (data.session) {
@@ -214,8 +228,8 @@ export function AuthProvider({ children }: { children: ReactNode }) {
             setUser(userData)
             setProfile(profileData)
 
-            // Store user in storage
-            storeUserInStorage(userData)
+            // Also store in direct auth
+            storeUserInCookie(userData)
           } catch (profileErr) {
             console.error("[Auth] Error fetching profile after refresh:", profileErr)
           }
@@ -224,39 +238,53 @@ export function AuthProvider({ children }: { children: ReactNode }) {
         return true
       }
 
-      return Boolean(storedUser)
+      return Boolean(directUser)
     } catch (err) {
       console.error("[Auth] Error refreshing session:", err)
-      return Boolean(getUserFromStorage())
-    } finally {
-      checkingSession.current = false
+      return isDirectlyAuthenticated()
     }
   }
 
   // Check if the user is logged in
   useEffect(() => {
-    // Prevent running this effect multiple times
-    if (isInitialized.current) return
-    isInitialized.current = true
-
     const checkUser = async () => {
       try {
         console.log("[Auth] Initial auth check")
         setIsLoading(true)
         setError(null)
 
-        // First check for stored user
-        const storedUser = getUserFromStorage()
-        if (storedUser) {
-          console.log("[Auth] Found stored user on initial load:", storedUser.id)
-          setUser(storedUser)
-          setProfile(storedUser)
+        // First check for direct auth
+        const directUser = getUserFromCookie()
+        if (directUser) {
+          console.log("[Auth] Found direct auth user on initial load:", directUser.id)
+          setDirectAuth({
+            enabled: true,
+            user: directUser,
+          })
+
+          setUser({
+            id: directUser.id,
+            email: directUser.email,
+            full_name: directUser.full_name,
+            avatar_url: directUser.avatar_url || "",
+            role: directUser.role || "user",
+          })
+
+          setProfile({
+            id: directUser.id,
+            email: directUser.email,
+            full_name: directUser.full_name,
+            avatar_url: directUser.avatar_url || "",
+            role: directUser.role || "user",
+          })
+
           setSessionStatus({
             hasSession: true,
-            expiresAt: null,
+            expiresAt: new Date(Date.now() + 24 * 60 * 60 * 1000).toISOString(), // 24 hours from now
             lastChecked: new Date().toISOString(),
             refreshAttempts: 0,
           })
+
           setIsLoading(false)
           return
         }
@@ -304,8 +332,8 @@ export function AuthProvider({ children }: { children: ReactNode }) {
           setUser(userData)
           setProfile(profileData)
 
-          // Store user in storage
-          storeUserInStorage(userData)
+          // Also store in direct auth cookie
+          storeUserInCookie(userData)
 
           setSessionStatus({
             hasSession: true,
@@ -317,7 +345,6 @@ export function AuthProvider({ children }: { children: ReactNode }) {
           console.log("[Auth] No user in session")
           setUser(null)
           setProfile(null)
-          storeUserInStorage(null)
           setSessionStatus({
             hasSession: false,
             expiresAt: null,
@@ -330,7 +357,6 @@ export function AuthProvider({ children }: { children: ReactNode }) {
         setError(null)
         setUser(null)
         setProfile(null)
-        storeUserInStorage(null)
         setSessionStatus({
           hasSession: false,
           expiresAt: null,
@@ -375,8 +401,8 @@ export function AuthProvider({ children }: { children: ReactNode }) {
         setUser(userData)
         setProfile(profileData)
 
-        // Store user in storage
-        storeUserInStorage(userData)
+        // Also store in direct auth cookie
+        storeUserInCookie(userData)
 
         setSessionStatus({
           hasSession: true,
@@ -384,17 +410,28 @@ export function AuthProvider({ children }: { children: ReactNode }) {
           lastChecked: new Date().toISOString(),
           refreshAttempts: 0,
         })
-      } else if (event === "SIGNED_OUT") {
-        console.log("[Auth] User signed out")
-        setUser(null)
-        setProfile(null)
-        storeUserInStorage(null)
-        setSessionStatus({
-          hasSession: false,
-          expiresAt: null,
-          lastChecked: new Date().toISOString(),
-          refreshAttempts: 0,
-        })
+      } else {
+        console.log("[Auth] No user in auth change event")
+
+        // Don't clear direct auth on sign out - keep the last known user
+        // This helps with the "inactive session but user info available" issue
+        const directUser = getUserFromCookie()
+        if (directUser && event === "SIGNED_OUT") {
+          console.log("[Auth] Preserving direct auth user after sign out")
+          setDirectAuth({
+            enabled: true,
+            user: directUser,
+          })
+        } else {
+          setUser(null)
+          setProfile(null)
+          setSessionStatus({
+            hasSession: false,
+            expiresAt: null,
+            lastChecked: new Date().toISOString(),
+            refreshAttempts: 0,
+          })
+        }
       }
 
       setIsLoading(false)
@@ -402,30 +439,23 @@ export function AuthProvider({ children }: { children: ReactNode }) {
 
     checkUser()
 
-    // Cleanup subscription on unmount
-    return () => {
-      console.log("[Auth] Cleaning up auth subscriptions")
-      subscription.unsubscribe()
-    }
-  }, [supabase]) // Only depend on supabase
-
-  // Set up periodic session check - in a separate effect to avoid dependency issues
-  useEffect(() => {
-    if (isLoading) return
-
+    // Set up periodic session check
     const sessionCheckInterval = setInterval(
       () => {
-        if (!checkingSession.current) {
+        if (!isLoading) {
           checkSession()
         }
       },
       5 * 60 * 1000,
     ) // Check every 5 minutes
 
+    // Cleanup subscription on unmount
     return () => {
+      console.log("[Auth] Cleaning up auth subscriptions")
+      subscription.unsubscribe()
       clearInterval(sessionCheckInterval)
     }
-  }, [isLoading]) // Only depend on isLoading
+  }, [supabase])
 
   // Sign in with email and password
   const signIn = async (email: string, password: string) => {
@@ -446,7 +476,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
 
       console.log("[Auth] Sign in successful:", data.user?.id)
 
-      // Store user in storage immediately
+      // Store user in direct auth cookie immediately
       if (data.user) {
         const { data: profileData } = await supabase.from("profiles").select("*").eq("id", data.user.id).single()
 
@@ -458,7 +488,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
           role: profileData?.role || "user",
         }
 
-        storeUserInStorage(userData)
+        storeUserInCookie(userData)
       }
 
       addToast({
@@ -533,14 +563,15 @@ export function AuthProvider({ children }: { children: ReactNode }) {
           console.log("[Auth] Profile created successfully")
         }
 
-        // Store user in storage
+        // Store user in direct auth cookie immediately
         const userData = {
           id: data.user.id,
           email: data.user.email || "",
           full_name: fullName,
           role: "user",
         }
-        storeUserInStorage(userData)
+
+        storeUserInCookie(userData)
       } catch (profileError) {
         console.error("[Auth] Exception creating profile:", profileError)
         // Continue even if profile creation fails - the trigger should handle it
@@ -609,15 +640,26 @@ export function AuthProvider({ children }: { children: ReactNode }) {
       }
 
       console.log("[Auth] Sign out successful")
-      setUser(null)
-      setProfile(null)
-      storeUserInStorage(null)
-      setSessionStatus({
-        hasSession: false,
-        expiresAt: null,
-        lastChecked: new Date().toISOString(),
-        refreshAttempts: 0,
-      })
+
+      // Don't clear direct auth on sign out - keep the last known user
+      // This helps with the "inactive session but user info available" issue
+      const directUser = getUserFromCookie()
+      if (directUser) {
+        console.log("[Auth] Preserving direct auth user after sign out")
+        setDirectAuth({
+          enabled: true,
+          user: directUser,
+        })
+      } else {
+        setUser(null)
+        setProfile(null)
+        setSessionStatus({
+          hasSession: false,
+          expiresAt: null,
+          lastChecked: new Date().toISOString(),
+          refreshAttempts: 0,
+        })
+      }
 
       addToast({
         title: "Signed out successfully",
@@ -642,6 +684,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     isAdmin,
     error,
     sessionStatus,
+    directAuth,
     debugMode,
     toggleDebugMode,
     signIn,
