@@ -3,10 +3,17 @@ import { NextResponse } from "next/server"
 import type { NextRequest } from "next/server"
 
 export async function middleware(req: NextRequest) {
-  console.log("[Middleware] Processing request:", req.nextUrl.pathname)
-
   // Create a response object
   const res = NextResponse.next()
+
+  console.log("[Middleware] Processing request:", req.nextUrl.pathname)
+
+  // Debug cookies
+  const cookies = req.cookies.getAll()
+  console.log(
+    "[Middleware] Cookies:",
+    cookies.map((c) => c.name),
+  )
 
   // Create the Supabase middleware client
   const supabase = createMiddlewareClient(
@@ -16,7 +23,7 @@ export async function middleware(req: NextRequest) {
       supabaseKey: process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY!,
       cookieOptions: {
         name: "sb-auth-token",
-        lifetime: 60 * 60 * 24 * 30, // 30 days (increased from 7)
+        lifetime: 60 * 60 * 24 * 30, // 30 days
         domain: process.env.NODE_ENV === "production" ? req.headers.get("host")?.split(":")[0] || undefined : undefined,
         path: "/",
         sameSite: "lax",
@@ -38,6 +45,13 @@ export async function middleware(req: NextRequest) {
       expiresAt: session?.expires_at ? new Date(session.expires_at * 1000).toISOString() : null,
     })
 
+    // IMPORTANT FIX: Store session info in a custom header that our client can read
+    // This helps debug session issues across the request/response cycle
+    res.headers.set("x-supabase-auth-status", session ? "authenticated" : "unauthenticated")
+    if (session?.user?.id) {
+      res.headers.set("x-supabase-user-id", session.user.id)
+    }
+
     // If user is not logged in and trying to access protected routes
     if (
       !session &&
@@ -51,29 +65,25 @@ export async function middleware(req: NextRequest) {
       return NextResponse.redirect(redirectUrl)
     }
 
-    // If user is logged in and trying to access login/signup pages
+    // CRITICAL FIX: If user is logged in and trying to access login/signup pages
+    // This prevents the redirect loop you're experiencing
     if (
       session &&
       (req.nextUrl.pathname.includes("/account/login") || req.nextUrl.pathname.includes("/account/signup"))
     ) {
-      console.log("[Middleware] Redirecting to account: User already logged in")
+      console.log("[Middleware] User is logged in but on login page, redirecting to account")
+
+      // Check if there's a redirectTo parameter
+      const redirectTo = req.nextUrl.searchParams.get("redirectTo")
+      if (redirectTo) {
+        console.log("[Middleware] Redirecting to:", redirectTo)
+        return NextResponse.redirect(new URL(redirectTo, req.url))
+      }
+
       return NextResponse.redirect(new URL("/account", req.url))
     }
 
-    // Try to refresh the session if it's close to expiring (within 1 hour)
-    if (session && session.expires_at) {
-      const expiresAt = new Date(session.expires_at * 1000)
-      const now = new Date()
-      const oneHourFromNow = new Date(now.getTime() + 60 * 60 * 1000)
-
-      if (expiresAt < oneHourFromNow) {
-        console.log("[Middleware] Session expiring soon, refreshing")
-        await supabase.auth.refreshSession()
-      }
-    }
-
     // Handle category slug redirects for old URLs
-    // This is a simplified example - in a real app, you might want to check against a database of old slugs
     if (req.nextUrl.pathname.startsWith("/xbox-games")) {
       return NextResponse.redirect(new URL("/category/games/xbox-games", req.url))
     }

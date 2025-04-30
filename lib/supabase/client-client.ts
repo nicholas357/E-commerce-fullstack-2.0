@@ -60,7 +60,7 @@ export function getClientClient() {
   return supabaseClient
 }
 
-// Add the missing export with the expected name
+// IMPORTANT: Add the missing export with the expected name
 export const getSupabaseClient = getClientClient
 
 // Helper function to check session status

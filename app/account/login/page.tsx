@@ -9,7 +9,7 @@ import { Eye, EyeOff, Mail, Lock, RefreshCw } from "lucide-react"
 import { GamingButton } from "@/components/ui/gaming-button"
 import { GoogleLoginButton } from "@/components/google-login-button"
 import { useAuth } from "@/context/auth-context"
-import { checkSessionStatus, refreshSession } from "@/lib/supabase/client-client"
+import { AuthSessionRecovery } from "@/components/auth-session-recovery"
 
 export default function LoginPage() {
   const [email, setEmail] = useState("")
@@ -21,12 +21,13 @@ export default function LoginPage() {
   const { signIn, user, checkSession, refreshUserSession } = useAuth()
   const router = useRouter()
   const [redirectPath, setRedirectPath] = useState("/account")
+  const [sessionCheckCount, setSessionCheckCount] = useState(0)
 
-  // Check if there's a redirect path in localStorage
+  // Check if there's a redirect path in localStorage or URL
   useEffect(() => {
     const storedRedirectPath = localStorage.getItem("redirectAfterLogin")
     if (storedRedirectPath) {
-      console.log("[Login] Found redirect path:", storedRedirectPath)
+      console.log("[Login] Found redirect path in localStorage:", storedRedirectPath)
       setRedirectPath(storedRedirectPath)
       localStorage.removeItem("redirectAfterLogin")
     }
@@ -48,26 +49,31 @@ export default function LoginPage() {
     }
   }, [user, router, redirectPath])
 
-  // Check session status on load
+  // Check session status on load and periodically if needed
   useEffect(() => {
     const verifySession = async () => {
       try {
         setSessionChecking(true)
-        console.log("[Login] Verifying session on page load")
+        console.log("[Login] Verifying session, attempt:", sessionCheckCount + 1)
 
-        const { data, error } = await checkSessionStatus()
+        const hasSession = await checkSession()
 
-        if (error) {
-          console.error("[Login] Session verification error:", error)
-          return
-        }
-
-        if (data.session) {
+        if (hasSession) {
           console.log("[Login] Valid session found, refreshing")
-          await refreshSession()
+          await refreshUserSession()
+
+          // If we still don't have a user after refresh but have a session,
+          // we might need to force reload the page to break the loop
+          if (!user && sessionCheckCount >= 2) {
+            console.log("[Login] Session found but no user after refresh, forcing reload")
+            window.location.href = redirectPath
+            return
+          }
         } else {
           console.log("[Login] No valid session found")
         }
+
+        setSessionCheckCount((prev) => prev + 1)
       } catch (err) {
         console.error("[Login] Error verifying session:", err)
       } finally {
@@ -76,7 +82,19 @@ export default function LoginPage() {
     }
 
     verifySession()
-  }, [])
+
+    // Set up periodic check if we're potentially in a loop
+    const checkInterval = sessionCheckCount < 3 ? 2000 : null
+
+    let intervalId: NodeJS.Timeout | null = null
+    if (checkInterval) {
+      intervalId = setInterval(verifySession, checkInterval)
+    }
+
+    return () => {
+      if (intervalId) clearInterval(intervalId)
+    }
+  }, [checkSession, refreshUserSession, sessionCheckCount, user, redirectPath])
 
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault()
@@ -97,7 +115,8 @@ export default function LoginPage() {
         setFormError(error)
       } else {
         console.log("[Login] Sign in successful, will redirect via useEffect")
-        // Successful login will redirect via the useEffect
+        // Force a session check immediately after successful login
+        await checkSession()
       }
     } catch (error: any) {
       console.error("[Login] Exception during sign in:", error)
@@ -131,8 +150,16 @@ export default function LoginPage() {
     }
   }
 
+  const handleForceRedirect = () => {
+    console.log("[Login] Forcing redirect to:", redirectPath)
+    window.location.href = redirectPath
+  }
+
   return (
     <div className="mx-auto max-w-md px-4 py-8">
+      {/* Add the session recovery component */}
+      <AuthSessionRecovery />
+
       <div className="rounded-lg border border-border bg-card p-8 shadow-lg">
         <div className="mb-6 text-center">
           <h1 className="text-2xl font-bold text-white">Sign In</h1>
@@ -221,7 +248,7 @@ export default function LoginPage() {
           </GamingButton>
         </form>
 
-        <div className="mt-4 flex justify-center space-x-2">
+        <div className="mt-4 flex flex-wrap justify-center gap-2">
           <button
             onClick={handleSessionCheck}
             disabled={sessionChecking}
@@ -246,6 +273,13 @@ export default function LoginPage() {
               <RefreshCw className="mr-1 h-3 w-3" />
             )}
             Refresh Session
+          </button>
+          <span className="text-gray-500">|</span>
+          <button
+            onClick={handleForceRedirect}
+            className="flex items-center text-xs text-amber-500 hover:text-amber-400"
+          >
+            Force Redirect
           </button>
         </div>
 
