@@ -1,6 +1,6 @@
 "use client"
 
-import { createContext, useContext, useState, useEffect, type ReactNode } from "react"
+import { createContext, useContext, useState, useEffect, useRef, type ReactNode } from "react"
 import { useRouter } from "next/navigation"
 import { useToast } from "@/components/ui/toast-provider"
 import { createClient } from "@/lib/supabase/client"
@@ -41,6 +41,38 @@ type AuthContextType = {
 // Create the AuthContext
 const AuthContext = createContext<AuthContextType | undefined>(undefined)
 
+// Helper function to get user from cookie/localStorage
+function getUserFromStorage(): User | null {
+  if (typeof window === "undefined") return null
+
+  try {
+    // Try to get from localStorage first
+    const storedUser = localStorage.getItem("turgame_user")
+    if (storedUser) {
+      return JSON.parse(storedUser)
+    }
+    return null
+  } catch (err) {
+    console.error("[Auth] Error getting user from storage:", err)
+    return null
+  }
+}
+
+// Helper function to store user in cookie/localStorage
+function storeUserInStorage(user: User | null): void {
+  if (typeof window === "undefined") return
+
+  try {
+    if (user) {
+      localStorage.setItem("turgame_user", JSON.stringify(user))
+    } else {
+      localStorage.removeItem("turgame_user")
+    }
+  } catch (err) {
+    console.error("[Auth] Error storing user in storage:", err)
+  }
+}
+
 // Create the AuthProvider component
 export function AuthProvider({ children }: { children: ReactNode }) {
   const [user, setUser] = useState<User | null>(null)
@@ -58,6 +90,10 @@ export function AuthProvider({ children }: { children: ReactNode }) {
   const { addToast } = useToast()
   const supabase = createClient()
 
+  // Use refs to track initialization and prevent infinite loops
+  const isInitialized = useRef(false)
+  const checkingSession = useRef(false)
+
   // Check if the user is an admin
   const isAdmin = user?.role === "admin"
 
@@ -68,8 +104,27 @@ export function AuthProvider({ children }: { children: ReactNode }) {
 
   // Function to check session status
   const checkSession = async () => {
+    if (checkingSession.current) return false
+
     try {
+      checkingSession.current = true
       console.log("[Auth] Checking session status")
+
+      // First check if we have a stored user
+      const storedUser = getUserFromStorage()
+      if (storedUser && !user) {
+        console.log("[Auth] Found stored user:", storedUser.id)
+        setUser(storedUser)
+        setProfile(storedUser)
+        setSessionStatus((prev) => ({
+          ...prev,
+          hasSession: true,
+          lastChecked: new Date().toISOString(),
+        }))
+        checkingSession.current = false
+        return true
+      }
+
       const { data, error } = await checkSessionStatus()
 
       const hasSession = Boolean(data.session)
@@ -86,17 +141,38 @@ export function AuthProvider({ children }: { children: ReactNode }) {
         console.error("[Auth] Session check error:", error)
       }
 
-      return hasSession
+      return hasSession || Boolean(storedUser)
     } catch (err) {
       console.error("[Auth] Error checking session:", err)
-      return false
+      return Boolean(getUserFromStorage())
+    } finally {
+      checkingSession.current = false
     }
   }
 
   // Function to refresh the user session
   const refreshUserSession = async () => {
+    if (checkingSession.current) return false
+
     try {
+      checkingSession.current = true
       console.log("[Auth] Attempting to refresh session")
+
+      // First check if we have a stored user
+      const storedUser = getUserFromStorage()
+      if (storedUser && !user) {
+        console.log("[Auth] Found stored user during refresh:", storedUser.id)
+        setUser(storedUser)
+        setProfile(storedUser)
+        setSessionStatus((prev) => ({
+          ...prev,
+          hasSession: true,
+          lastChecked: new Date().toISOString(),
+        }))
+        checkingSession.current = false
+        return true
+      }
+
       setSessionStatus((prev) => ({
         ...prev,
         refreshAttempts: prev.refreshAttempts + 1,
@@ -106,7 +182,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
 
       if (error) {
         console.error("[Auth] Session refresh error:", error)
-        return false
+        return Boolean(storedUser)
       }
 
       if (data.session) {
@@ -127,15 +203,19 @@ export function AuthProvider({ children }: { children: ReactNode }) {
               .eq("id", data.session.user.id)
               .single()
 
-            setUser({
+            const userData = {
               id: data.session.user.id,
               email: data.session.user.email || "",
               full_name: profileData?.full_name || "",
               avatar_url: profileData?.avatar_url || "",
               role: profileData?.role || "user",
-            })
+            }
 
+            setUser(userData)
             setProfile(profileData)
+
+            // Store user in storage
+            storeUserInStorage(userData)
           } catch (profileErr) {
             console.error("[Auth] Error fetching profile after refresh:", profileErr)
           }
@@ -144,20 +224,42 @@ export function AuthProvider({ children }: { children: ReactNode }) {
         return true
       }
 
-      return false
+      return Boolean(storedUser)
     } catch (err) {
       console.error("[Auth] Error refreshing session:", err)
-      return false
+      return Boolean(getUserFromStorage())
+    } finally {
+      checkingSession.current = false
     }
   }
 
   // Check if the user is logged in
   useEffect(() => {
+    // Prevent running this effect multiple times
+    if (isInitialized.current) return
+    isInitialized.current = true
+
     const checkUser = async () => {
       try {
         console.log("[Auth] Initial auth check")
         setIsLoading(true)
         setError(null)
+
+        // First check for stored user
+        const storedUser = getUserFromStorage()
+        if (storedUser) {
+          console.log("[Auth] Found stored user on initial load:", storedUser.id)
+          setUser(storedUser)
+          setProfile(storedUser)
+          setSessionStatus({
+            hasSession: true,
+            expiresAt: null,
+            lastChecked: new Date().toISOString(),
+            refreshAttempts: 0,
+          })
+          setIsLoading(false)
+          return
+        }
 
         // Get the current session
         const {
@@ -191,15 +293,19 @@ export function AuthProvider({ children }: { children: ReactNode }) {
             console.log("[Auth] Profile loaded successfully")
           }
 
-          setUser({
+          const userData = {
             id: session.user.id,
             email: session.user.email || "",
             full_name: profileData?.full_name || "",
             avatar_url: profileData?.avatar_url || "",
             role: profileData?.role || "user",
-          })
+          }
 
+          setUser(userData)
           setProfile(profileData)
+
+          // Store user in storage
+          storeUserInStorage(userData)
 
           setSessionStatus({
             hasSession: true,
@@ -211,6 +317,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
           console.log("[Auth] No user in session")
           setUser(null)
           setProfile(null)
+          storeUserInStorage(null)
           setSessionStatus({
             hasSession: false,
             expiresAt: null,
@@ -223,6 +330,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
         setError(null)
         setUser(null)
         setProfile(null)
+        storeUserInStorage(null)
         setSessionStatus({
           hasSession: false,
           expiresAt: null,
@@ -256,15 +364,19 @@ export function AuthProvider({ children }: { children: ReactNode }) {
           console.log("[Auth] Profile loaded on auth change")
         }
 
-        setUser({
+        const userData = {
           id: session.user.id,
           email: session.user.email || "",
           full_name: profileData?.full_name || "",
           avatar_url: profileData?.avatar_url || "",
           role: profileData?.role || "user",
-        })
+        }
 
+        setUser(userData)
         setProfile(profileData)
+
+        // Store user in storage
+        storeUserInStorage(userData)
 
         setSessionStatus({
           hasSession: true,
@@ -272,10 +384,11 @@ export function AuthProvider({ children }: { children: ReactNode }) {
           lastChecked: new Date().toISOString(),
           refreshAttempts: 0,
         })
-      } else {
-        console.log("[Auth] No user in auth change event")
+      } else if (event === "SIGNED_OUT") {
+        console.log("[Auth] User signed out")
         setUser(null)
         setProfile(null)
+        storeUserInStorage(null)
         setSessionStatus({
           hasSession: false,
           expiresAt: null,
@@ -289,23 +402,30 @@ export function AuthProvider({ children }: { children: ReactNode }) {
 
     checkUser()
 
-    // Set up periodic session check
+    // Cleanup subscription on unmount
+    return () => {
+      console.log("[Auth] Cleaning up auth subscriptions")
+      subscription.unsubscribe()
+    }
+  }, [supabase]) // Only depend on supabase
+
+  // Set up periodic session check - in a separate effect to avoid dependency issues
+  useEffect(() => {
+    if (isLoading) return
+
     const sessionCheckInterval = setInterval(
       () => {
-        if (!isLoading) {
+        if (!checkingSession.current) {
           checkSession()
         }
       },
       5 * 60 * 1000,
     ) // Check every 5 minutes
 
-    // Cleanup subscription on unmount
     return () => {
-      console.log("[Auth] Cleaning up auth subscriptions")
-      subscription.unsubscribe()
       clearInterval(sessionCheckInterval)
     }
-  }, [supabase])
+  }, [isLoading]) // Only depend on isLoading
 
   // Sign in with email and password
   const signIn = async (email: string, password: string) => {
@@ -325,6 +445,21 @@ export function AuthProvider({ children }: { children: ReactNode }) {
       }
 
       console.log("[Auth] Sign in successful:", data.user?.id)
+
+      // Store user in storage immediately
+      if (data.user) {
+        const { data: profileData } = await supabase.from("profiles").select("*").eq("id", data.user.id).single()
+
+        const userData = {
+          id: data.user.id,
+          email: data.user.email || "",
+          full_name: profileData?.full_name || "",
+          avatar_url: profileData?.avatar_url || "",
+          role: profileData?.role || "user",
+        }
+
+        storeUserInStorage(userData)
+      }
 
       addToast({
         title: "Signed in successfully",
@@ -397,6 +532,15 @@ export function AuthProvider({ children }: { children: ReactNode }) {
         } else {
           console.log("[Auth] Profile created successfully")
         }
+
+        // Store user in storage
+        const userData = {
+          id: data.user.id,
+          email: data.user.email || "",
+          full_name: fullName,
+          role: "user",
+        }
+        storeUserInStorage(userData)
       } catch (profileError) {
         console.error("[Auth] Exception creating profile:", profileError)
         // Continue even if profile creation fails - the trigger should handle it
@@ -467,6 +611,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
       console.log("[Auth] Sign out successful")
       setUser(null)
       setProfile(null)
+      storeUserInStorage(null)
       setSessionStatus({
         hasSession: false,
         expiresAt: null,
