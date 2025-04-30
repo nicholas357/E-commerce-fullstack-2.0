@@ -9,7 +9,7 @@ import { Eye, EyeOff, Mail, Lock, RefreshCw } from "lucide-react"
 import { GamingButton } from "@/components/ui/gaming-button"
 import { GoogleLoginButton } from "@/components/google-login-button"
 import { useAuth } from "@/context/auth-context"
-import { AuthSessionRecovery } from "@/components/auth-session-recovery"
+import { EmergencyAuthBypass } from "@/components/emergency-auth-bypass"
 
 export default function LoginPage() {
   const [email, setEmail] = useState("")
@@ -22,6 +22,7 @@ export default function LoginPage() {
   const router = useRouter()
   const [redirectPath, setRedirectPath] = useState("/account")
   const [sessionCheckCount, setSessionCheckCount] = useState(0)
+  const [bypassEnabled, setBypassEnabled] = useState(false)
 
   // Check if there's a redirect path in localStorage or URL
   useEffect(() => {
@@ -38,6 +39,13 @@ export default function LoginPage() {
     if (redirectTo) {
       console.log("[Login] Found redirectTo in URL:", redirectTo)
       setRedirectPath(redirectTo)
+    }
+
+    // Check if emergency bypass is enabled
+    const bypass = sessionStorage.getItem("emergency_auth_bypass")
+    if (bypass === "true") {
+      console.log("[Login] Emergency auth bypass is enabled")
+      setBypassEnabled(true)
     }
   }, [])
 
@@ -152,18 +160,33 @@ export default function LoginPage() {
 
   const handleForceRedirect = () => {
     console.log("[Login] Forcing redirect to:", redirectPath)
+    // Set emergency bypass flag
+    sessionStorage.setItem("emergency_auth_bypass", "true")
+    // Force navigation
     window.location.href = redirectPath
+  }
+
+  const handleEnableBypass = () => {
+    console.log("[Login] Enabling emergency auth bypass")
+    sessionStorage.setItem("emergency_auth_bypass", "true")
+    document.cookie = "emergency_auth_bypass=true; path=/; max-age=300" // 5 minutes
+    setBypassEnabled(true)
   }
 
   return (
     <div className="mx-auto max-w-md px-4 py-8">
-      {/* Add the session recovery component */}
-      <AuthSessionRecovery />
+      {/* Add the emergency auth bypass component */}
+      <EmergencyAuthBypass />
 
       <div className="rounded-lg border border-border bg-card p-8 shadow-lg">
         <div className="mb-6 text-center">
           <h1 className="text-2xl font-bold text-white">Sign In</h1>
           <p className="mt-2 text-gray-400">Welcome back! Please sign in to your account.</p>
+          {bypassEnabled && (
+            <div className="mt-2 rounded-md bg-green-500/10 p-1 text-xs text-green-500">
+              Emergency bypass mode enabled
+            </div>
+          )}
         </div>
 
         {formError && (
@@ -280,6 +303,13 @@ export default function LoginPage() {
             className="flex items-center text-xs text-amber-500 hover:text-amber-400"
           >
             Force Redirect
+          </button>
+          <span className="text-gray-500">|</span>
+          <button
+            onClick={handleEnableBypass}
+            className="flex items-center text-xs text-amber-500 hover:text-amber-400"
+          >
+            Enable Bypass
           </button>
         </div>
 
