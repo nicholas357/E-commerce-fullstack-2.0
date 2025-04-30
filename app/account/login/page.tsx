@@ -4,10 +4,12 @@ import type React from "react"
 
 import { useState, useEffect } from "react"
 import Link from "next/link"
-import { useRouter, useSearchParams } from "next/navigation"
-import { Eye, EyeOff, Mail, Lock } from "lucide-react"
+import { useRouter } from "next/navigation"
+import { Eye, EyeOff, Mail, Lock, RefreshCw } from "lucide-react"
 import { GamingButton } from "@/components/ui/gaming-button"
+import { GoogleLoginButton } from "@/components/google-login-button"
 import { useAuth } from "@/context/auth-context"
+import { checkSessionStatus, refreshSession } from "@/lib/supabase/client-client"
 
 export default function LoginPage() {
   const [email, setEmail] = useState("")
@@ -15,17 +17,66 @@ export default function LoginPage() {
   const [showPassword, setShowPassword] = useState(false)
   const [isSubmitting, setIsSubmitting] = useState(false)
   const [formError, setFormError] = useState("")
-  const { signIn, user, signInWithGoogle } = useAuth()
+  const [sessionChecking, setSessionChecking] = useState(false)
+  const { signIn, user, checkSession, refreshUserSession } = useAuth()
   const router = useRouter()
-  const searchParams = useSearchParams()
-  const redirectPath = searchParams?.get("redirectTo") || "/account"
+  const [redirectPath, setRedirectPath] = useState("/account")
+
+  // Check if there's a redirect path in localStorage
+  useEffect(() => {
+    const storedRedirectPath = localStorage.getItem("redirectAfterLogin")
+    if (storedRedirectPath) {
+      console.log("[Login] Found redirect path:", storedRedirectPath)
+      setRedirectPath(storedRedirectPath)
+      localStorage.removeItem("redirectAfterLogin")
+    }
+
+    // Check for URL params
+    const urlParams = new URLSearchParams(window.location.search)
+    const redirectTo = urlParams.get("redirectTo")
+    if (redirectTo) {
+      console.log("[Login] Found redirectTo in URL:", redirectTo)
+      setRedirectPath(redirectTo)
+    }
+  }, [])
 
   // Redirect if already logged in
   useEffect(() => {
     if (user) {
+      console.log("[Login] User already logged in, redirecting to:", redirectPath)
       router.push(redirectPath)
     }
   }, [user, router, redirectPath])
+
+  // Check session status on load
+  useEffect(() => {
+    const verifySession = async () => {
+      try {
+        setSessionChecking(true)
+        console.log("[Login] Verifying session on page load")
+
+        const { data, error } = await checkSessionStatus()
+
+        if (error) {
+          console.error("[Login] Session verification error:", error)
+          return
+        }
+
+        if (data.session) {
+          console.log("[Login] Valid session found, refreshing")
+          await refreshSession()
+        } else {
+          console.log("[Login] No valid session found")
+        }
+      } catch (err) {
+        console.error("[Login] Error verifying session:", err)
+      } finally {
+        setSessionChecking(false)
+      }
+    }
+
+    verifySession()
+  }, [])
 
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault()
@@ -39,24 +90,44 @@ export default function LoginPage() {
     setIsSubmitting(true)
 
     try {
+      console.log("[Login] Submitting login form")
       const { error } = await signIn(email, password)
       if (error) {
+        console.error("[Login] Sign in error:", error)
         setFormError(error)
       } else {
+        console.log("[Login] Sign in successful, will redirect via useEffect")
         // Successful login will redirect via the useEffect
       }
     } catch (error: any) {
+      console.error("[Login] Exception during sign in:", error)
       setFormError(error.message || "An error occurred during sign in")
     } finally {
       setIsSubmitting(false)
     }
   }
 
-  const handleGoogleSignIn = async () => {
+  const handleSessionCheck = async () => {
+    setSessionChecking(true)
     try {
-      await signInWithGoogle()
-    } catch (error: any) {
-      setFormError(error.message || "An error occurred during Google sign in")
+      console.log("[Login] Manual session check")
+      await checkSession()
+    } catch (err) {
+      console.error("[Login] Error in manual session check:", err)
+    } finally {
+      setSessionChecking(false)
+    }
+  }
+
+  const handleSessionRefresh = async () => {
+    setSessionChecking(true)
+    try {
+      console.log("[Login] Manual session refresh")
+      await refreshUserSession()
+    } catch (err) {
+      console.error("[Login] Error in manual session refresh:", err)
+    } finally {
+      setSessionChecking(false)
     }
   }
 
@@ -150,6 +221,34 @@ export default function LoginPage() {
           </GamingButton>
         </form>
 
+        <div className="mt-4 flex justify-center space-x-2">
+          <button
+            onClick={handleSessionCheck}
+            disabled={sessionChecking}
+            className="flex items-center text-xs text-amber-500 hover:text-amber-400"
+          >
+            {sessionChecking ? (
+              <RefreshCw className="mr-1 h-3 w-3 animate-spin" />
+            ) : (
+              <RefreshCw className="mr-1 h-3 w-3" />
+            )}
+            Check Session
+          </button>
+          <span className="text-gray-500">|</span>
+          <button
+            onClick={handleSessionRefresh}
+            disabled={sessionChecking}
+            className="flex items-center text-xs text-amber-500 hover:text-amber-400"
+          >
+            {sessionChecking ? (
+              <RefreshCw className="mr-1 h-3 w-3 animate-spin" />
+            ) : (
+              <RefreshCw className="mr-1 h-3 w-3" />
+            )}
+            Refresh Session
+          </button>
+        </div>
+
         <div className="mt-6">
           <div className="relative">
             <div className="absolute inset-0 flex items-center">
@@ -161,13 +260,7 @@ export default function LoginPage() {
           </div>
 
           <div className="mt-6">
-            <button
-              onClick={handleGoogleSignIn}
-              className="flex w-full items-center justify-center rounded-md border border-border bg-background py-2 px-4 text-sm font-medium text-white hover:bg-gray-800 focus:outline-none focus:ring-2 focus:ring-amber-500 focus:ring-offset-2"
-            >
-              <img src="/images/google-logo.png" alt="Google" className="mr-2 h-5 w-5" />
-              Sign in with Google
-            </button>
+            <GoogleLoginButton />
           </div>
         </div>
 

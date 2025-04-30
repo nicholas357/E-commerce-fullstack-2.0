@@ -7,6 +7,7 @@ import Link from "next/link"
 import { useRouter } from "next/navigation"
 import { Eye, EyeOff, Mail, Lock, User } from "lucide-react"
 import { GamingButton } from "@/components/ui/gaming-button"
+import { GoogleLoginButton } from "@/components/google-login-button"
 import { useAuth } from "@/context/auth-context"
 
 export default function SignupPage() {
@@ -16,15 +17,33 @@ export default function SignupPage() {
   const [showPassword, setShowPassword] = useState(false)
   const [isSubmitting, setIsSubmitting] = useState(false)
   const [formError, setFormError] = useState("")
-  const { signUp, user, signInWithGoogle } = useAuth()
+  const { signUp, user } = useAuth()
   const router = useRouter()
+  const [redirectPath, setRedirectPath] = useState("/account")
+
+  // Check if there's a redirect path in cookies
+  useEffect(() => {
+    const getCookie = (name: string) => {
+      const value = `; ${document.cookie}`
+      const parts = value.split(`; ${name}=`)
+      if (parts.length === 2) return parts.pop()?.split(";").shift()
+      return null
+    }
+
+    const storedRedirectPath = getCookie("redirectAfterLogin")
+    if (storedRedirectPath) {
+      setRedirectPath(storedRedirectPath)
+      // Clear the cookie
+      document.cookie = "redirectAfterLogin=; path=/; expires=Thu, 01 Jan 1970 00:00:00 GMT"
+    }
+  }, [])
 
   // Redirect if already logged in
   useEffect(() => {
     if (user) {
-      router.push("/account")
+      router.push(redirectPath)
     }
-  }, [user, router])
+  }, [user, router, redirectPath])
 
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault()
@@ -43,6 +62,7 @@ export default function SignupPage() {
     setIsSubmitting(true)
 
     try {
+      // Use the auth context's signUp method instead of direct API call
       const { error } = await signUp(email, password, fullName)
 
       if (error) {
@@ -56,14 +76,6 @@ export default function SignupPage() {
       setFormError(error.message || "An error occurred during sign up")
     } finally {
       setIsSubmitting(false)
-    }
-  }
-
-  const handleGoogleSignIn = async () => {
-    try {
-      await signInWithGoogle()
-    } catch (error: any) {
-      setFormError(error.message || "An error occurred during Google sign in")
     }
   }
 
@@ -192,13 +204,7 @@ export default function SignupPage() {
           </div>
 
           <div className="mt-6">
-            <button
-              onClick={handleGoogleSignIn}
-              className="flex w-full items-center justify-center rounded-md border border-border bg-background py-2 px-4 text-sm font-medium text-white hover:bg-gray-800 focus:outline-none focus:ring-2 focus:ring-amber-500 focus:ring-offset-2"
-            >
-              <img src="/images/google-logo.png" alt="Google" className="mr-2 h-5 w-5" />
-              Sign up with Google
-            </button>
+            <GoogleLoginButton />
           </div>
         </div>
 

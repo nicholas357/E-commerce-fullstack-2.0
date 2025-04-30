@@ -1,87 +1,114 @@
+import { createMiddlewareClient } from "@supabase/auth-helpers-nextjs"
 import { NextResponse } from "next/server"
 import type { NextRequest } from "next/server"
-import { createClient } from "@supabase/supabase-js"
 
 export async function middleware(req: NextRequest) {
+  console.log("[Middleware] Processing request:", req.nextUrl.pathname)
+
   // Create a response object
   const res = NextResponse.next()
 
-  // Get the token from the cookie
-  const token = req.cookies.get("supabase-auth-token")?.value
+  // Create the Supabase middleware client
+  const supabase = createMiddlewareClient(
+    { req, res },
+    {
+      supabaseUrl: process.env.NEXT_PUBLIC_SUPABASE_URL!,
+      supabaseKey: process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY!,
+      cookieOptions: {
+        name: "sb-auth-token",
+        lifetime: 60 * 60 * 24 * 30, // 30 days (increased from 7)
+        domain: process.env.NODE_ENV === "production" ? req.headers.get("host")?.split(":")[0] || undefined : undefined,
+        path: "/",
+        sameSite: "lax",
+        secure: process.env.NODE_ENV === "production",
+      },
+    },
+  )
 
-  // If no token is found and trying to access protected routes
-  if (
-    !token &&
-    (req.nextUrl.pathname.startsWith("/account") || req.nextUrl.pathname.startsWith("/admin")) &&
-    !req.nextUrl.pathname.includes("/account/login") &&
-    !req.nextUrl.pathname.includes("/account/signup")
-  ) {
-    const redirectUrl = new URL("/account/login", req.url)
-    redirectUrl.searchParams.set("redirectTo", req.nextUrl.pathname)
-    return NextResponse.redirect(redirectUrl)
-  }
+  try {
+    // Refresh the session if it exists
+    const {
+      data: { session },
+    } = await supabase.auth.getSession()
 
-  // If token is found, verify it and check user role
-  if (token) {
-    try {
-      // Initialize Supabase client
-      const supabase = createClient(
-        process.env.NEXT_PUBLIC_SUPABASE_URL || "",
-        process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY || "",
-      )
+    console.log("[Middleware] Session check:", {
+      path: req.nextUrl.pathname,
+      hasSession: Boolean(session),
+      userId: session?.user?.id || null,
+      expiresAt: session?.expires_at ? new Date(session.expires_at * 1000).toISOString() : null,
+    })
 
-      // Verify the token
-      const {
-        data: { user },
-        error: authError,
-      } = await supabase.auth.getUser(token)
+    // If user is not logged in and trying to access protected routes
+    if (
+      !session &&
+      (req.nextUrl.pathname.startsWith("/account") || req.nextUrl.pathname.startsWith("/admin")) &&
+      !req.nextUrl.pathname.includes("/account/login") &&
+      !req.nextUrl.pathname.includes("/account/signup")
+    ) {
+      console.log("[Middleware] Redirecting to login: No session for protected route")
+      const redirectUrl = new URL("/account/login", req.url)
+      redirectUrl.searchParams.set("redirectTo", req.nextUrl.pathname)
+      return NextResponse.redirect(redirectUrl)
+    }
 
-      if (authError || !user) {
-        // If there's an error or no user found, redirect to login
-        if (req.nextUrl.pathname.startsWith("/account") || req.nextUrl.pathname.startsWith("/admin")) {
-          const redirectUrl = new URL("/account/login", req.url)
-          return NextResponse.redirect(redirectUrl)
-        }
-      }
+    // If user is logged in and trying to access login/signup pages
+    if (
+      session &&
+      (req.nextUrl.pathname.includes("/account/login") || req.nextUrl.pathname.includes("/account/signup"))
+    ) {
+      console.log("[Middleware] Redirecting to account: User already logged in")
+      return NextResponse.redirect(new URL("/account", req.url))
+    }
 
-      // Get the user profile to check role
-      const { data: profile, error: profileError } = await supabase
-        .from("profiles")
-        .select("role")
-        .eq("firebase_uid", user.id)
-        .single()
+    // Try to refresh the session if it's close to expiring (within 1 hour)
+    if (session && session.expires_at) {
+      const expiresAt = new Date(session.expires_at * 1000)
+      const now = new Date()
+      const oneHourFromNow = new Date(now.getTime() + 60 * 60 * 1000)
 
-      if (profileError || !profile) {
-        // If there's an error or no profile found, redirect to login
-        if (req.nextUrl.pathname.startsWith("/account") || req.nextUrl.pathname.startsWith("/admin")) {
-          const redirectUrl = new URL("/account/login", req.url)
-          return NextResponse.redirect(redirectUrl)
-        }
-      }
-
-      // Check if user is trying to access admin routes but doesn't have admin role
-      if (req.nextUrl.pathname.startsWith("/admin") && profile.role !== "admin") {
-        return NextResponse.redirect(new URL("/unauthorized", req.url))
-      }
-
-      // If user is logged in and trying to access login/signup pages
-      if (req.nextUrl.pathname.includes("/account/login") || req.nextUrl.pathname.includes("/account/signup")) {
-        return NextResponse.redirect(new URL("/account", req.url))
-      }
-    } catch (error) {
-      console.error("Error verifying token:", error)
-
-      // If token verification fails and trying to access protected routes
-      if (req.nextUrl.pathname.startsWith("/account") || req.nextUrl.pathname.startsWith("/admin")) {
-        const redirectUrl = new URL("/account/login", req.url)
-        return NextResponse.redirect(redirectUrl)
+      if (expiresAt < oneHourFromNow) {
+        console.log("[Middleware] Session expiring soon, refreshing")
+        await supabase.auth.refreshSession()
       }
     }
-  }
 
-  return res
+    // Handle category slug redirects for old URLs
+    // This is a simplified example - in a real app, you might want to check against a database of old slugs
+    if (req.nextUrl.pathname.startsWith("/xbox-games")) {
+      return NextResponse.redirect(new URL("/category/games/xbox-games", req.url))
+    }
+
+    if (req.nextUrl.pathname.startsWith("/gift-cards")) {
+      return NextResponse.redirect(new URL("/category/gift-cards", req.url))
+    }
+
+    if (req.nextUrl.pathname.startsWith("/streaming-services")) {
+      return NextResponse.redirect(new URL("/category/streaming-services", req.url))
+    }
+
+    if (req.nextUrl.pathname.startsWith("/game-points")) {
+      return NextResponse.redirect(new URL("/category/game-points", req.url))
+    }
+
+    if (req.nextUrl.pathname.startsWith("/software")) {
+      return NextResponse.redirect(new URL("/category/software", req.url))
+    }
+
+    return res
+  } catch (error) {
+    console.error("[Middleware] Error in middleware:", error)
+    return res
+  }
 }
 
 export const config = {
-  matcher: ["/account/:path*", "/admin/:path*"],
+  matcher: [
+    "/account/:path*",
+    "/admin/:path*",
+    "/xbox-games",
+    "/gift-cards",
+    "/streaming-services",
+    "/game-points",
+    "/software",
+  ],
 }
