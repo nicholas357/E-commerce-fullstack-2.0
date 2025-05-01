@@ -8,14 +8,13 @@ import { Providers } from "@/components/providers"
 import { ScrollToTop } from "@/components/scroll-to-top"
 import { ToastProvider } from "@/components/ui/toast-provider"
 import { AuthCookieDebugger } from "@/components/auth-cookie-debugger"
-import { Suspense } from "react" // ✅ Added for useSearchParams safety
 
 const inter = Inter({ subsets: ["latin"] })
 
 export const metadata: Metadata = {
   title: "TurGame - Digital Gaming Store",
   description: "Buy digital games, gift cards, and more",
-  generator: "v0.dev",
+    generator: 'v0.dev'
 }
 
 export default function RootLayout({
@@ -28,15 +27,13 @@ export default function RootLayout({
       <body className={inter.className}>
         <Providers>
           <ToastProvider>
-            <Suspense fallback={null}>
-              <div className="flex min-h-screen flex-col">
-                <Header />
-                <main className="flex-1">{children}</main>
-                <Footer />
-              </div>
-              <ScrollToTop />
-              <AuthCookieDebugger />
-            </Suspense>
+            <div className="flex min-h-screen flex-col">
+              <Header />
+              <main className="flex-1">{children}</main>
+              <Footer />
+            </div>
+            <ScrollToTop />
+            <AuthCookieDebugger />
           </ToastProvider>
         </Providers>
       </body>
