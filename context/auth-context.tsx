@@ -647,19 +647,10 @@ export function AuthProvider({ children }: { children: ReactNode }) {
       const currentPath = window.location.pathname
       localStorage.setItem("authReturnPath", currentPath)
 
-      // Get a fresh client for OAuth
-      const freshClient = createClient()
+      // Use our custom OAuth function instead
+      const { signInWithOAuth } = await import("@/lib/supabase/client-client")
 
-      const { data, error } = await freshClient.auth.signInWithOAuth({
-        provider: "google",
-        options: {
-          redirectTo: `${window.location.origin}/auth/callback`,
-          queryParams: {
-            access_type: "offline",
-            prompt: "consent",
-          },
-        },
-      })
+      const { data, error } = await signInWithOAuth("google", `${window.location.origin}/auth/callback`)
 
       if (error) {
         console.error("[Auth] Google sign in error:", error)
