@@ -1,99 +1,121 @@
 "use client"
 
-import { useState } from "react"
-import { Button } from "@/components/ui/button"
-import { getSupabaseClient } from "@/lib/supabase/client-client"
-import { useRouter } from "next/navigation"
+import { useState, useEffect } from "react"
+import { useAuth } from "@/context/auth-context"
+import { useToast } from "@/components/ui/toast-provider"
+import { createClient } from "@/lib/supabase/client"
 
-interface GoogleLoginButtonProps {
-  mode?: "login" | "signup"
-  redirectTo?: string
-  className?: string
-}
-
-export default function GoogleLoginButton({ mode = "login", redirectTo, className = "" }: GoogleLoginButtonProps) {
+export function GoogleLoginButton() {
   const [isLoading, setIsLoading] = useState(false)
-  const [error, setError] = useState<string | null>(null)
-  const router = useRouter()
+  const [retryCount, setRetryCount] = useState(0)
+  const { signInWithGoogle } = useAuth()
+  const { addToast } = useToast()
 
-  const handleGoogleLogin = async () => {
-    setIsLoading(true)
-    setError(null)
+  // Check for OAuth errors on mount
+  useEffect(() => {
+    const urlParams = new URLSearchParams(window.location.search)
+    const error = urlParams.get("error")
+    const errorDescription = urlParams.get("error_description")
 
-    try {
-      // Store the redirect path in localStorage and a cookie for redundancy
-      if (redirectTo) {
-        localStorage.setItem("redirectAfterLogin", redirectTo)
-        document.cookie = `redirectAfterLogin=${redirectTo}; path=/; max-age=3600`
-      }
-
-      // Get the current origin for the callback URL
-      const origin = window.location.origin
-      const callbackUrl = `${origin}/auth/callback`
-
-      console.log("[Google Login] Starting OAuth with callback URL:", callbackUrl)
-
-      const supabase = getSupabaseClient()
-      const { data, error } = await supabase.auth.signInWithOAuth({
-        provider: "google",
-        options: {
-          redirectTo: callbackUrl,
-          queryParams: {
-            access_type: "offline",
-            prompt: "consent",
-          },
-        },
+    if (error) {
+      console.error("[GoogleLogin] OAuth error detected:", error, errorDescription)
+      addToast({
+        title: "Authentication Error",
+        description: errorDescription || "There was an error signing in with Google. Please try again.",
+        type: "error",
       })
 
-      if (error) {
-        console.error("[Google Login] OAuth error:", error)
-        setError(error.message)
-      } else {
-        console.log("[Google Login] OAuth initiated:", data)
+      // Clean up the URL
+      const newUrl = window.location.pathname
+      window.history.replaceState({}, document.title, newUrl)
+    }
+  }, [addToast])
+
+  const handleGoogleSignIn = async () => {
+    setIsLoading(true)
+    try {
+      console.log("[GoogleLogin] Initiating Google sign in")
+
+      // Store the current URL to return to after auth
+      const currentPath = window.location.pathname
+      localStorage.setItem("authReturnPath", currentPath)
+
+      // Ensure we have a fresh Supabase client
+      const supabase = createClient()
+
+      // First check if the client is connected
+      try {
+        // Simple ping to check connection
+        await supabase.from("profiles").select("count", { count: "exact", head: true })
+        console.log("[GoogleLogin] Database connection verified")
+      } catch (connErr) {
+        console.error("[GoogleLogin] Connection check failed:", connErr)
+        // If connection fails, notify user and retry
+        if (retryCount < 2) {
+          addToast({
+            title: "Connection Issue",
+            description: "Reconnecting to service...",
+            type: "info",
+          })
+          setRetryCount((prev) => prev + 1)
+          // Short delay before retry
+          await new Promise((resolve) => setTimeout(resolve, 1000))
+          handleGoogleSignIn()
+          return
+        }
       }
-    } catch (err) {
-      console.error("[Google Login] Exception during OAuth:", err)
-      setError("Failed to connect to authentication service. Please try again.")
+
+      const { error } = await signInWithGoogle()
+
+      if (error) {
+        console.error("[GoogleLogin] Google sign in error:", error)
+        addToast({
+          title: "Authentication Error",
+          description: error || "Failed to sign in with Google. Please try again.",
+          type: "error",
+        })
+      } else {
+        console.log("[GoogleLogin] Google sign in initiated successfully")
+        // Success toast is handled after redirect
+      }
+    } catch (error) {
+      console.error("[GoogleLogin] Exception during Google sign in:", error)
+      addToast({
+        title: "Authentication Error",
+        description: "An unexpected error occurred. Please try again.",
+        type: "error",
+      })
     } finally {
       setIsLoading(false)
     }
   }
 
   return (
-    <div className="w-full">
-      <Button
-        type="button"
-        variant="outline"
-        onClick={handleGoogleLogin}
-        disabled={isLoading}
-        className={`w-full flex items-center justify-center gap-2 ${className}`}
-      >
-        {isLoading ? (
-          <span className="animate-spin">⟳</span>
-        ) : (
-          <svg width="20" height="20" viewBox="0 0 20 20" fill="none" xmlns="http://www.w3.org/2000/svg">
-            <path
-              d="M18.1711 8.36788H17.5V8.33329H10V11.6666H14.6789C13.9474 13.6063 12.1053 15 10 15C7.23684 15 5 12.7632 5 10C5 7.23682 7.23684 5.00001 10 5.00001C11.2632 5.00001 12.4211 5.48684 13.3158 6.28947L15.6842 3.92104C14.1579 2.49998 12.1842 1.66667 10 1.66667C5.39474 1.66667 1.66667 5.39474 1.66667 10C1.66667 14.6052 5.39474 18.3333 10 18.3333C14.6053 18.3333 18.3333 14.6052 18.3333 10C18.3333 9.44736 18.2763 8.89473 18.1711 8.36788Z"
-              fill="#FFC107"
-            />
-            <path
-              d="M2.62793 6.12104L5.36214 8.12894C6.10003 6.29473 7.90003 5.00001 9.99982 5.00001C11.2631 5.00001 12.4209 5.48684 13.3157 6.28947L15.6841 3.92104C14.1578 2.49998 12.1841 1.66667 9.99982 1.66667C6.74588 1.66667 3.92798 3.47367 2.62793 6.12104Z"
-              fill="#FF3D00"
-            />
-            <path
-              d="M10.0002 18.3333C12.1265 18.3333 14.0581 17.5281 15.5686 16.1614L13.0107 13.9833C12.1433 14.6348 11.0823 15.0009 10.0002 15C7.90246 15 6.06719 13.6176 5.32982 11.6895L2.60938 13.7804C3.89561 16.4738 6.74404 18.3333 10.0002 18.3333Z"
-              fill="#4CAF50"
-            />
-            <path
-              d="M18.1711 8.36788H17.5V8.33329H10V11.6666H14.6789C14.3316 12.5891 13.7368 13.3828 12.975 13.9805L12.9789 13.9776L15.5368 16.1557C15.3789 16.2995 18.3333 14.1666 18.3333 10C18.3333 9.44736 18.2763 8.89473 18.1711 8.36788Z"
-              fill="#1976D2"
-            />
-          </svg>
-        )}
-        <span>{isLoading ? "Connecting..." : `${mode === "login" ? "Sign in" : "Sign up"} with Google`}</span>
-      </Button>
-
-      {error && <div className="mt-2 text-sm text-red-500">{error}</div>}
-    </div>
+    <button
+      type="button"
+      onClick={handleGoogleSignIn}
+      disabled={isLoading}
+      className="flex w-full items-center justify-center gap-3 rounded-md border border-border bg-muted/50 px-4 py-2 text-white transition-colors hover:bg-muted focus:outline-none focus:ring-2 focus:ring-amber-500 focus:ring-offset-2 focus:ring-offset-background disabled:opacity-50"
+    >
+      <svg className="h-5 w-5" viewBox="0 0 24 24">
+        <path
+          d="M22.56 12.25c0-.78-.07-1.53-.2-2.25H12v4.26h5.92c-.26 1.37-1.04 2.53-2.21 3.31v2.77h3.57c2.08-1.92 3.28-4.74 3.28-8.09z"
+          fill="#4285F4"
+        />
+        <path
+          d="M12 23c2.97 0 5.46-.98 7.28-2.66l-3.57-2.77c-.98.66-2.23 1.06-3.71 1.06-2.86 0-5.29-1.93-6.16-4.53H2.18v2.84C3.99 20.53 7.7 23 12 23z"
+          fill="#34A853"
+        />
+        <path
+          d="M5.84 14.09c-.22-.66-.35-1.36-.35-2.09s.13-1.43.35-2.09V7.07H2.18C1.43 8.55 1 10.22 1 12s.43 3.45 1.18 4.93l2.85-2.22.81-.62z"
+          fill="#FBBC05"
+        />
+        <path
+          d="M12 5.38c1.62 0 3.06.56 4.21 1.64l3.15-3.15C17.45 2.09 14.97 1 12 1 7.7 1 3.99 3.47 2.18 7.07l3.66 2.84c.87-2.6 3.3-4.53 6.16-4.53z"
+          fill="#EA4335"
+        />
+      </svg>
+      <span>{isLoading ? "Connecting..." : "Continue with Google"}</span>
+    </button>
   )
 }
