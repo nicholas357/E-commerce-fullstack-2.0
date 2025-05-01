@@ -23,19 +23,46 @@ export async function getCurrentUser() {
 
     console.log("[Auth Service] User found:", user.id)
 
-    // Get the user profile
-    const { data: profile, error: profileError } = await supabase
-      .from("profiles")
-      .select("*")
-      .eq("id", user.id)
-      .single()
+    // Get the user profile with retry logic
+    let profileAttempts = 0
+    let profile = null
+    let profileError = null
 
-    if (profileError) {
-      console.error("[Auth Service] Error fetching profile:", profileError)
-    } else {
-      console.log("[Auth Service] Profile fetched successfully")
+    while (profileAttempts < 3 && !profile) {
+      try {
+        profileAttempts++
+        console.log(`[Auth Service] Fetching profile, attempt ${profileAttempts}`)
+
+        // Create a fresh client for each attempt
+        const freshClient = createClient()
+
+        const { data, error: fetchError } = await freshClient.from("profiles").select("*").eq("id", user.id).single()
+
+        if (fetchError) {
+          console.error(`[Auth Service] Error fetching profile (attempt ${profileAttempts}):`, fetchError)
+          profileError = fetchError
+
+          // Wait before retrying
+          if (profileAttempts < 3) {
+            await new Promise((resolve) => setTimeout(resolve, 1000))
+          }
+        } else {
+          profile = data
+          console.log("[Auth Service] Profile fetched successfully")
+          break
+        }
+      } catch (err) {
+        console.error(`[Auth Service] Exception fetching profile (attempt ${profileAttempts}):`, err)
+        profileError = err
+
+        // Wait before retrying
+        if (profileAttempts < 3) {
+          await new Promise((resolve) => setTimeout(resolve, 1000))
+        }
+      }
     }
 
+    // Even if profile fetch fails, return basic user info
     return {
       id: user.id,
       email: user.email || "",
@@ -72,17 +99,47 @@ export async function signInWithEmail(email: string, password: string) {
 
     console.log("[Auth Service] Sign in successful:", data.user.id)
 
-    // Get the user profile
-    const { data: profile, error: profileError } = await supabase
-      .from("profiles")
-      .select("*")
-      .eq("id", data.user.id)
-      .single()
+    // Get the user profile with retry logic
+    let profileAttempts = 0
+    let profile = null
+    let profileError = null
 
-    if (profileError) {
-      console.error("[Auth Service] Error fetching profile:", profileError)
-    } else {
-      console.log("[Auth Service] Profile fetched successfully")
+    while (profileAttempts < 3 && !profile) {
+      try {
+        profileAttempts++
+        console.log(`[Auth Service] Fetching profile, attempt ${profileAttempts}`)
+
+        // Create a fresh client for each attempt
+        const freshClient = createClient()
+
+        const { data: profileData, error: fetchError } = await freshClient
+          .from("profiles")
+          .select("*")
+          .eq("id", data.user.id)
+          .single()
+
+        if (fetchError) {
+          console.error(`[Auth Service] Error fetching profile (attempt ${profileAttempts}):`, fetchError)
+          profileError = fetchError
+
+          // Wait before retrying
+          if (profileAttempts < 3) {
+            await new Promise((resolve) => setTimeout(resolve, 1000))
+          }
+        } else {
+          profile = profileData
+          console.log("[Auth Service] Profile fetched successfully")
+          break
+        }
+      } catch (err) {
+        console.error(`[Auth Service] Exception fetching profile (attempt ${profileAttempts}):`, err)
+        profileError = err
+
+        // Wait before retrying
+        if (profileAttempts < 3) {
+          await new Promise((resolve) => setTimeout(resolve, 1000))
+        }
+      }
     }
 
     return {
@@ -127,24 +184,47 @@ export async function signUpWithEmail(email: string, password: string, fullName:
 
     console.log("[Auth Service] Sign up successful:", data.user.id)
 
-    try {
-      // Create a profile for the user with proper error handling
-      const { error: profileError } = await supabase.from("profiles").insert({
-        id: data.user.id,
-        full_name: fullName,
-        email: email,
-        role: "user",
-        created_at: new Date().toISOString(),
-        updated_at: new Date().toISOString(),
-      })
+    // Create a profile with retry logic
+    let profileAttempts = 0
+    let profileSuccess = false
 
-      if (profileError) {
-        console.error("[Auth Service] Error creating profile:", profileError)
-      } else {
-        console.log("[Auth Service] Profile created successfully")
+    while (profileAttempts < 3 && !profileSuccess) {
+      try {
+        profileAttempts++
+        console.log(`[Auth Service] Creating profile, attempt ${profileAttempts}`)
+
+        // Create a fresh client for each attempt
+        const freshClient = createClient()
+
+        const { error: profileError } = await freshClient.from("profiles").insert({
+          id: data.user.id,
+          full_name: fullName,
+          email: email,
+          role: "user",
+          created_at: new Date().toISOString(),
+          updated_at: new Date().toISOString(),
+        })
+
+        if (profileError) {
+          console.error(`[Auth Service] Error creating profile (attempt ${profileAttempts}):`, profileError)
+
+          // Wait before retrying
+          if (profileAttempts < 3) {
+            await new Promise((resolve) => setTimeout(resolve, 1000))
+          }
+        } else {
+          console.log("[Auth Service] Profile created successfully")
+          profileSuccess = true
+          break
+        }
+      } catch (err) {
+        console.error(`[Auth Service] Exception creating profile (attempt ${profileAttempts}):`, err)
+
+        // Wait before retrying
+        if (profileAttempts < 3) {
+          await new Promise((resolve) => setTimeout(resolve, 1000))
+        }
       }
-    } catch (profileErr) {
-      console.error("[Auth Service] Exception during profile creation:", profileErr)
     }
 
     return {

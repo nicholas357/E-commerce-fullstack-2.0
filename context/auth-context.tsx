@@ -71,6 +71,42 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     console.log("[Auth] Debug mode:", !debugMode)
   }, [debugMode])
 
+  // Safely fetch profile with retries
+  const fetchUserProfile = useCallback(async (userId: string, retries = 3): Promise<any> => {
+    try {
+      console.log(`[Auth] Fetching profile for user ${userId}, attempt ${4 - retries}`)
+
+      // Create a fresh client for each attempt to avoid stale connections
+      const client = createClient()
+
+      const { data, error } = await client.from("profiles").select("*").eq("id", userId).single()
+
+      if (error) {
+        console.error(`[Auth] Error fetching profile (attempt ${4 - retries}):`, error)
+
+        // If we have retries left, wait and try again
+        if (retries > 1) {
+          await new Promise((resolve) => setTimeout(resolve, 1000)) // Wait 1 second
+          return fetchUserProfile(userId, retries - 1)
+        }
+
+        throw error
+      }
+
+      console.log("[Auth] Profile fetched successfully:", data?.id)
+      return data
+    } catch (err) {
+      console.error(`[Auth] Failed to fetch profile after ${4 - retries} attempts:`, err)
+
+      // Return a minimal profile to prevent breaking the auth flow
+      return {
+        id: userId,
+        full_name: "",
+        role: "user",
+      }
+    }
+  }, [])
+
   // Function to check session status - using useCallback to prevent recreation on each render
   const checkSession = useCallback(async () => {
     try {
@@ -150,11 +186,8 @@ export function AuthProvider({ children }: { children: ReactNode }) {
         // Update user data after successful refresh
         if (data.session.user) {
           try {
-            const { data: profileData } = await supabase
-              .from("profiles")
-              .select("*")
-              .eq("id", data.session.user.id)
-              .single()
+            // Use the safe profile fetch method
+            const profileData = await fetchUserProfile(data.session.user.id)
 
             const userData = {
               id: data.session.user.id,
@@ -172,6 +205,18 @@ export function AuthProvider({ children }: { children: ReactNode }) {
             setAuthCookie(userData)
           } catch (profileErr) {
             console.error("[Auth] Error fetching profile after refresh:", profileErr)
+
+            // Still update user with basic info even if profile fetch fails
+            const userData = {
+              id: data.session.user.id,
+              email: data.session.user.email || "",
+              full_name: "",
+              role: "user",
+              expiresAt: data.session?.expires_at ? new Date(data.session.expires_at * 1000).toISOString() : null,
+            }
+
+            setUser(userData)
+            setAuthCookie(userData)
           }
         }
 
@@ -183,7 +228,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
       console.error("[Auth] Error refreshing session:", err)
       return false
     }
-  }, [supabase])
+  }, [fetchUserProfile])
 
   // Check if the user is logged in - only run once on mount
   useEffect(() => {
@@ -242,40 +287,53 @@ export function AuthProvider({ children }: { children: ReactNode }) {
         if (session?.user) {
           console.log("[Auth] User found in session:", session.user.id)
 
-          // Get the user profile
-          const { data: profileData, error: profileError } = await supabase
-            .from("profiles")
-            .select("*")
-            .eq("id", session.user.id)
-            .single()
+          try {
+            // Use the safe profile fetch method
+            const profileData = await fetchUserProfile(session.user.id)
 
-          if (profileError) {
-            console.error("[Auth] Error fetching profile:", profileError)
-          } else {
-            console.log("[Auth] Profile loaded successfully")
+            const userData = {
+              id: session.user.id,
+              email: session.user.email || "",
+              full_name: profileData?.full_name || "",
+              avatar_url: profileData?.avatar_url || "",
+              role: profileData?.role || "user",
+              expiresAt: session.expires_at ? new Date(session.expires_at * 1000).toISOString() : null,
+            }
+
+            setUser(userData)
+            setProfile(profileData)
+
+            // Store user data in cookie for persistence
+            setAuthCookie(userData)
+
+            setSessionStatus({
+              hasSession: true,
+              expiresAt: session.expires_at ? new Date(session.expires_at * 1000).toISOString() : null,
+              lastChecked: new Date().toISOString(),
+              refreshAttempts: 0,
+            })
+          } catch (profileErr) {
+            console.error("[Auth] Error fetching profile:", profileErr)
+
+            // Still set basic user data even if profile fetch fails
+            const userData = {
+              id: session.user.id,
+              email: session.user.email || "",
+              full_name: "",
+              role: "user",
+              expiresAt: session.expires_at ? new Date(session.expires_at * 1000).toISOString() : null,
+            }
+
+            setUser(userData)
+            setAuthCookie(userData)
+
+            setSessionStatus({
+              hasSession: true,
+              expiresAt: session.expires_at ? new Date(session.expires_at * 1000).toISOString() : null,
+              lastChecked: new Date().toISOString(),
+              refreshAttempts: 0,
+            })
           }
-
-          const userData = {
-            id: session.user.id,
-            email: session.user.email || "",
-            full_name: profileData?.full_name || "",
-            avatar_url: profileData?.avatar_url || "",
-            role: profileData?.role || "user",
-            expiresAt: session.expires_at ? new Date(session.expires_at * 1000).toISOString() : null,
-          }
-
-          setUser(userData)
-          setProfile(profileData)
-
-          // Store user data in cookie for persistence
-          setAuthCookie(userData)
-
-          setSessionStatus({
-            hasSession: true,
-            expiresAt: session.expires_at ? new Date(session.expires_at * 1000).toISOString() : null,
-            lastChecked: new Date().toISOString(),
-            refreshAttempts: 0,
-          })
         } else {
           console.log("[Auth] No user in session")
           setUser(null)
@@ -307,7 +365,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     }
 
     checkUser()
-  }, [isInitialized, refreshUserSession, supabase])
+  }, [isInitialized, refreshUserSession, supabase, fetchUserProfile])
 
   // Set up auth state change listener - separate from the initial check
   useEffect(() => {
@@ -324,40 +382,53 @@ export function AuthProvider({ children }: { children: ReactNode }) {
       if (session?.user) {
         console.log("[Auth] User in auth change:", session.user.id)
 
-        // Get the user profile
-        const { data: profileData, error: profileError } = await supabase
-          .from("profiles")
-          .select("*")
-          .eq("id", session.user.id)
-          .single()
+        try {
+          // Use the safe profile fetch method with retries
+          const profileData = await fetchUserProfile(session.user.id)
 
-        if (profileError) {
-          console.error("[Auth] Error fetching profile on auth change:", profileError)
-        } else {
-          console.log("[Auth] Profile loaded on auth change")
+          const userData = {
+            id: session.user.id,
+            email: session.user.email || "",
+            full_name: profileData?.full_name || "",
+            avatar_url: profileData?.avatar_url || "",
+            role: profileData?.role || "user",
+            expiresAt: session.expires_at ? new Date(session.expires_at * 1000).toISOString() : null,
+          }
+
+          setUser(userData)
+          setProfile(profileData)
+
+          // Store user data in cookie for persistence
+          setAuthCookie(userData)
+
+          setSessionStatus({
+            hasSession: true,
+            expiresAt: session.expires_at ? new Date(session.expires_at * 1000).toISOString() : null,
+            lastChecked: new Date().toISOString(),
+            refreshAttempts: 0,
+          })
+        } catch (err) {
+          console.error("[Auth] Error in auth state change handler:", err)
+
+          // Still update user with basic info even if profile fetch fails
+          const userData = {
+            id: session.user.id,
+            email: session.user.email || "",
+            full_name: "",
+            role: "user",
+            expiresAt: session.expires_at ? new Date(session.expires_at * 1000).toISOString() : null,
+          }
+
+          setUser(userData)
+          setAuthCookie(userData)
+
+          setSessionStatus({
+            hasSession: true,
+            expiresAt: session.expires_at ? new Date(session.expires_at * 1000).toISOString() : null,
+            lastChecked: new Date().toISOString(),
+            refreshAttempts: 0,
+          })
         }
-
-        const userData = {
-          id: session.user.id,
-          email: session.user.email || "",
-          full_name: profileData?.full_name || "",
-          avatar_url: profileData?.avatar_url || "",
-          role: profileData?.role || "user",
-          expiresAt: session.expires_at ? new Date(session.expires_at * 1000).toISOString() : null,
-        }
-
-        setUser(userData)
-        setProfile(profileData)
-
-        // Store user data in cookie for persistence
-        setAuthCookie(userData)
-
-        setSessionStatus({
-          hasSession: true,
-          expiresAt: session.expires_at ? new Date(session.expires_at * 1000).toISOString() : null,
-          lastChecked: new Date().toISOString(),
-          refreshAttempts: 0,
-        })
       } else {
         console.log("[Auth] No user in auth change event")
         setUser(null)
@@ -390,7 +461,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
       subscription.unsubscribe()
       clearInterval(sessionCheckInterval)
     }
-  }, [isInitialized, isLoading, checkSession, supabase])
+  }, [isInitialized, isLoading, checkSession, supabase, fetchUserProfile])
 
   // Sign in with email and password
   const signIn = useCallback(
