@@ -10,10 +10,10 @@ import { GamingButton } from "@/components/ui/gaming-button"
 import { GoogleLoginButton } from "@/components/google-login-button"
 import { useAuth } from "@/context/auth-context"
 import { EmergencyAuthBypass } from "@/components/emergency-auth-bypass"
-import { useToast } from "@/components/ui/use-toast"
+import { useToast } from "@/components/ui/toast-provider"
 
 // Import the auth cookie utilities
-import { setAuthCookie } from "@/lib/auth-cookies"
+import { setAuthCookie, getAuthFromCookie } from "@/lib/auth-cookies"
 
 // Add a function to manually set auth data after the imports
 const manuallySetAuthData = (userData: any) => {
@@ -38,7 +38,16 @@ export default function LoginPage() {
   const [redirectPath, setRedirectPath] = useState("/account")
   const [sessionCheckCount, setSessionCheckCount] = useState(0)
   const [bypassEnabled, setBypassEnabled] = useState(false)
-  const { toast: addToast } = useToast()
+  const { addToast } = useToast()
+
+  // CRITICAL FIX: Check for auth cookie on mount and redirect if found
+  useEffect(() => {
+    const authCookie = getAuthFromCookie()
+    if (authCookie && authCookie.id) {
+      console.log("[Login] Auth cookie found on mount, redirecting to:", redirectPath)
+      router.push(redirectPath)
+    }
+  }, [redirectPath, router])
 
   // Check if there's a redirect path in localStorage or URL
   useEffect(() => {
@@ -69,6 +78,10 @@ export default function LoginPage() {
   useEffect(() => {
     if (user) {
       console.log("[Login] User already logged in, redirecting to:", redirectPath)
+
+      // CRITICAL FIX: Ensure the auth cookie is set before redirecting
+      manuallySetAuthData(user)
+
       router.push(redirectPath)
     }
   }, [user, router, redirectPath])
@@ -141,6 +154,15 @@ export default function LoginPage() {
         console.log("[Login] Sign in successful, will redirect via useEffect")
         // Force a session check immediately after successful login
         await checkSession()
+
+        // CRITICAL FIX: Force redirect after successful login
+        if (user) {
+          manuallySetAuthData(user)
+          router.push(redirectPath)
+        } else {
+          // If we don't have a user yet, force a page reload to get fresh state
+          window.location.href = redirectPath
+        }
       }
     } catch (error: any) {
       console.error("[Login] Exception during sign in:", error)

@@ -1,10 +1,23 @@
 import { createMiddlewareClient } from "@supabase/auth-helpers-nextjs"
 import { NextResponse } from "next/server"
 import type { NextRequest } from "next/server"
-// Import the auth cookie utilities at the top of the file
-import { getAuthFromRequestCookies, AUTH_COOKIE_NAME } from "@/lib/auth-cookies"
+// Import the auth cookie utilities
+import { AUTH_COOKIE_NAME } from "@/lib/auth-cookies"
 
-// Update the middleware function to check for our custom auth cookie
+// Helper function to get Supabase cookie name
+function getSupabaseCookieName(req: NextRequest): string | null {
+  // Look for cookies that match the Supabase pattern
+  const supabaseCookies = req.cookies
+    .getAll()
+    .filter((cookie) => cookie.name.startsWith("sb-") && cookie.name.endsWith("-auth-token"))
+
+  if (supabaseCookies.length > 0) {
+    return supabaseCookies[0].name
+  }
+
+  return null
+}
+
 export async function middleware(req: NextRequest) {
   // Create a response object
   const res = NextResponse.next()
@@ -29,11 +42,48 @@ export async function middleware(req: NextRequest) {
 
   // Check for our custom auth cookie
   const authCookie = req.cookies.get(AUTH_COOKIE_NAME)
-  if (authCookie) {
+  const supabaseCookieName = getSupabaseCookieName(req)
+  const supabaseCookie = supabaseCookieName ? req.cookies.get(supabaseCookieName) : null
+
+  // Check if either cookie exists
+  if (authCookie || supabaseCookie) {
     try {
-      const userData = getAuthFromRequestCookies(req.headers.get("cookie"))
+      // Try to get user data from our custom cookie first
+      let userData = null
+
+      if (authCookie) {
+        userData = JSON.parse(decodeURIComponent(authCookie.value))
+      } else if (supabaseCookie) {
+        // Parse Supabase cookie format
+        const supabaseData = JSON.parse(decodeURIComponent(supabaseCookie.value))
+        if (supabaseData.user) {
+          userData = {
+            id: supabaseData.user.id,
+            email: supabaseData.user.email,
+            full_name: supabaseData.user.user_metadata?.full_name || "",
+            role: supabaseData.user.app_metadata?.role || "user",
+          }
+        }
+      }
+
       if (userData && userData.id) {
         console.log("[Middleware] Valid auth cookie found for user:", userData.id)
+
+        // If user is trying to access login/signup pages, redirect to account
+        if (req.nextUrl.pathname.includes("/account/login") || req.nextUrl.pathname.includes("/account/signup")) {
+          console.log("[Middleware] User has auth cookie but on login page, redirecting to account")
+
+          // Check if there's a redirectTo parameter
+          const url = new URL(req.url)
+          const redirectTo = url.searchParams.get("redirectTo")
+          if (redirectTo) {
+            console.log("[Middleware] Redirecting to:", redirectTo)
+            return NextResponse.redirect(new URL(redirectTo, req.url))
+          }
+
+          return NextResponse.redirect(new URL("/account", req.url))
+        }
+
         // Set headers to indicate authentication status
         res.headers.set("x-supabase-auth-status", "authenticated")
         res.headers.set("x-supabase-user-id", userData.id)
@@ -51,7 +101,7 @@ export async function middleware(req: NextRequest) {
       supabaseUrl: process.env.NEXT_PUBLIC_SUPABASE_URL!,
       supabaseKey: process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY!,
       cookieOptions: {
-        name: "sb-auth-token",
+        name: supabaseCookieName || "sb-auth-token",
         lifetime: 60 * 60 * 24 * 30, // 30 days
         domain: process.env.NODE_ENV === "production" ? req.headers.get("host")?.split(":")[0] || undefined : undefined,
         path: "/",
@@ -85,6 +135,7 @@ export async function middleware(req: NextRequest) {
     if (
       !session &&
       !authCookie &&
+      !supabaseCookie &&
       (req.nextUrl.pathname.startsWith("/account") || req.nextUrl.pathname.startsWith("/admin")) &&
       !req.nextUrl.pathname.includes("/account/login") &&
       !req.nextUrl.pathname.includes("/account/signup")
@@ -119,7 +170,7 @@ export async function middleware(req: NextRequest) {
     // CRITICAL FIX: If user is logged in and trying to access login/signup pages
     // This prevents the redirect loop you're experiencing
     if (
-      (session || authCookie) &&
+      (session || authCookie || supabaseCookie) &&
       (req.nextUrl.pathname.includes("/account/login") || req.nextUrl.pathname.includes("/account/signup"))
     ) {
       console.log("[Middleware] User is logged in but on login page, redirecting to account")

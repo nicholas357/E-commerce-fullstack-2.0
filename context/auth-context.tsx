@@ -6,7 +6,7 @@ import { useToast } from "@/components/ui/toast-provider"
 import { createClient } from "@/lib/supabase/client"
 import { checkSessionStatus, refreshSession } from "@/lib/supabase/client-client"
 
-// Import the new auth cookie utilities at the top of the file
+// Import the auth cookie utilities
 import { setAuthCookie, getAuthFromCookie, clearAuthCookie } from "@/lib/auth-cookies"
 
 // Define the User type
@@ -74,6 +74,30 @@ export function AuthProvider({ children }: { children: ReactNode }) {
   const checkSession = async () => {
     try {
       console.log("[Auth] Checking session status")
+
+      // First check if we have user data in the cookie
+      const cookieAuth = getAuthFromCookie()
+      if (cookieAuth && cookieAuth.id) {
+        console.log("[Auth] Found user data in cookie:", cookieAuth.id)
+
+        // Update session status based on cookie data
+        setSessionStatus((prev) => ({
+          ...prev,
+          hasSession: true,
+          expiresAt: cookieAuth.expiresAt || null,
+          lastChecked: new Date().toISOString(),
+        }))
+
+        // If we don't already have a user set, set it from the cookie
+        if (!user) {
+          setUser(cookieAuth)
+          setProfile(cookieAuth)
+        }
+
+        return true
+      }
+
+      // If no cookie, check with Supabase
       const { data, error } = await checkSessionStatus()
 
       const hasSession = Boolean(data.session)
