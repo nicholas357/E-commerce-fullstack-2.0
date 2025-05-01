@@ -2,7 +2,7 @@
 
 import type React from "react"
 
-import { useState, useEffect } from "react"
+import { useState, useEffect, useCallback } from "react"
 import Link from "next/link"
 import { useRouter } from "next/navigation"
 import { Eye, EyeOff, Mail, Lock, RefreshCw } from "lucide-react"
@@ -39,17 +39,21 @@ export default function LoginPage() {
   const [sessionCheckCount, setSessionCheckCount] = useState(0)
   const [bypassEnabled, setBypassEnabled] = useState(false)
   const { addToast } = useToast()
+  const [initialCheckDone, setInitialCheckDone] = useState(false)
 
-  // CRITICAL FIX: Check for auth cookie on mount and redirect if found
+  // CRITICAL FIX: Check for auth cookie on mount and redirect if found - only once
   useEffect(() => {
+    if (initialCheckDone) return
+
     const authCookie = getAuthFromCookie()
     if (authCookie && authCookie.id) {
       console.log("[Login] Auth cookie found on mount, redirecting to:", redirectPath)
       router.push(redirectPath)
     }
-  }, [redirectPath, router])
+    setInitialCheckDone(true)
+  }, [initialCheckDone, redirectPath, router])
 
-  // Check if there's a redirect path in localStorage or URL
+  // Check if there's a redirect path in localStorage or URL - only once on mount
   useEffect(() => {
     const storedRedirectPath = localStorage.getItem("redirectAfterLogin")
     if (storedRedirectPath) {
@@ -74,7 +78,7 @@ export default function LoginPage() {
     }
   }, [])
 
-  // Redirect if already logged in
+  // Redirect if already logged in - with user dependency
   useEffect(() => {
     if (user) {
       console.log("[Login] User already logged in, redirecting to:", redirectPath)
@@ -86,31 +90,25 @@ export default function LoginPage() {
     }
   }, [user, router, redirectPath])
 
-  // Check session status on load and periodically if needed
+  // Check session status on load - only once
   useEffect(() => {
+    if (sessionCheckCount > 0 || !initialCheckDone) return
+
     const verifySession = async () => {
       try {
         setSessionChecking(true)
-        console.log("[Login] Verifying session, attempt:", sessionCheckCount + 1)
+        console.log("[Login] Initial session verification")
 
         const hasSession = await checkSession()
 
         if (hasSession) {
           console.log("[Login] Valid session found, refreshing")
           await refreshUserSession()
-
-          // If we still don't have a user after refresh but have a session,
-          // we might need to force reload the page to break the loop
-          if (!user && sessionCheckCount >= 2) {
-            console.log("[Login] Session found but no user after refresh, forcing reload")
-            window.location.href = redirectPath
-            return
-          }
         } else {
           console.log("[Login] No valid session found")
         }
 
-        setSessionCheckCount((prev) => prev + 1)
+        setSessionCheckCount(1)
       } catch (err) {
         console.error("[Login] Error verifying session:", err)
       } finally {
@@ -119,60 +117,51 @@ export default function LoginPage() {
     }
 
     verifySession()
+  }, [checkSession, refreshUserSession, sessionCheckCount, initialCheckDone])
 
-    // Set up periodic check if we're potentially in a loop
-    const checkInterval = sessionCheckCount < 3 ? 2000 : null
+  const handleSubmit = useCallback(
+    async (e: React.FormEvent) => {
+      e.preventDefault()
+      setFormError("")
 
-    let intervalId: NodeJS.Timeout | null = null
-    if (checkInterval) {
-      intervalId = setInterval(verifySession, checkInterval)
-    }
-
-    return () => {
-      if (intervalId) clearInterval(intervalId)
-    }
-  }, [checkSession, refreshUserSession, sessionCheckCount, user, redirectPath])
-
-  const handleSubmit = async (e: React.FormEvent) => {
-    e.preventDefault()
-    setFormError("")
-
-    if (!email || !password) {
-      setFormError("Please fill in all fields")
-      return
-    }
-
-    setIsSubmitting(true)
-
-    try {
-      console.log("[Login] Submitting login form")
-      const { error } = await signIn(email, password)
-      if (error) {
-        console.error("[Login] Sign in error:", error)
-        setFormError(error)
-      } else {
-        console.log("[Login] Sign in successful, will redirect via useEffect")
-        // Force a session check immediately after successful login
-        await checkSession()
-
-        // CRITICAL FIX: Force redirect after successful login
-        if (user) {
-          manuallySetAuthData(user)
-          router.push(redirectPath)
-        } else {
-          // If we don't have a user yet, force a page reload to get fresh state
-          window.location.href = redirectPath
-        }
+      if (!email || !password) {
+        setFormError("Please fill in all fields")
+        return
       }
-    } catch (error: any) {
-      console.error("[Login] Exception during sign in:", error)
-      setFormError(error.message || "An error occurred during sign in")
-    } finally {
-      setIsSubmitting(false)
-    }
-  }
 
-  const handleSessionCheck = async () => {
+      setIsSubmitting(true)
+
+      try {
+        console.log("[Login] Submitting login form")
+        const { error } = await signIn(email, password)
+        if (error) {
+          console.error("[Login] Sign in error:", error)
+          setFormError(error)
+        } else {
+          console.log("[Login] Sign in successful, will redirect via useEffect")
+          // Force a session check immediately after successful login
+          await checkSession()
+
+          // CRITICAL FIX: Force redirect after successful login
+          if (user) {
+            manuallySetAuthData(user)
+            router.push(redirectPath)
+          } else {
+            // If we don't have a user yet, force a page reload to get fresh state
+            window.location.href = redirectPath
+          }
+        }
+      } catch (error: any) {
+        console.error("[Login] Exception during sign in:", error)
+        setFormError(error.message || "An error occurred during sign in")
+      } finally {
+        setIsSubmitting(false)
+      }
+    },
+    [email, password, signIn, checkSession, user, router, redirectPath],
+  )
+
+  const handleSessionCheck = useCallback(async () => {
     setSessionChecking(true)
     try {
       console.log("[Login] Manual session check")
@@ -182,9 +171,9 @@ export default function LoginPage() {
     } finally {
       setSessionChecking(false)
     }
-  }
+  }, [checkSession])
 
-  const handleSessionRefresh = async () => {
+  const handleSessionRefresh = useCallback(async () => {
     setSessionChecking(true)
     try {
       console.log("[Login] Manual session refresh")
@@ -194,9 +183,9 @@ export default function LoginPage() {
     } finally {
       setSessionChecking(false)
     }
-  }
+  }, [refreshUserSession])
 
-  const handleForceRedirect = () => {
+  const handleForceRedirect = useCallback(() => {
     console.log("[Login] Forcing redirect to:", redirectPath)
 
     // If we have user data, set the auth cookie
@@ -210,14 +199,14 @@ export default function LoginPage() {
 
     // Force navigation
     window.location.href = redirectPath
-  }
+  }, [redirectPath, user])
 
-  const handleEnableBypass = () => {
+  const handleEnableBypass = useCallback(() => {
     console.log("[Login] Enabling emergency auth bypass")
     sessionStorage.setItem("emergency_auth_bypass", "true")
     document.cookie = "emergency_auth_bypass=true; path=/; max-age=300" // 5 minutes
     setBypassEnabled(true)
-  }
+  }, [])
 
   return (
     <div className="mx-auto max-w-md px-4 py-8">

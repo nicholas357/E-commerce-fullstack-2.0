@@ -1,6 +1,6 @@
 "use client"
 
-import { createContext, useContext, useState, useEffect, type ReactNode } from "react"
+import { createContext, useContext, useState, useEffect, type ReactNode, useCallback } from "react"
 import { useRouter } from "next/navigation"
 import { useToast } from "@/components/ui/toast-provider"
 import { createClient } from "@/lib/supabase/client"
@@ -58,6 +58,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     lastChecked: null as string | null,
     refreshAttempts: 0,
   })
+  const [isInitialized, setIsInitialized] = useState(false)
   const router = useRouter()
   const { addToast } = useToast()
   const supabase = createClient()
@@ -65,13 +66,13 @@ export function AuthProvider({ children }: { children: ReactNode }) {
   // Check if the user is an admin
   const isAdmin = user?.role === "admin"
 
-  const toggleDebugMode = () => {
+  const toggleDebugMode = useCallback(() => {
     setDebugMode((prev) => !prev)
     console.log("[Auth] Debug mode:", !debugMode)
-  }
+  }, [debugMode])
 
-  // Function to check session status
-  const checkSession = async () => {
+  // Function to check session status - using useCallback to prevent recreation on each render
+  const checkSession = useCallback(async () => {
     try {
       console.log("[Auth] Checking session status")
 
@@ -119,10 +120,10 @@ export function AuthProvider({ children }: { children: ReactNode }) {
       console.error("[Auth] Error checking session:", err)
       return false
     }
-  }
+  }, [user])
 
-  // Function to refresh the user session
-  const refreshUserSession = async () => {
+  // Function to refresh the user session - using useCallback to prevent recreation on each render
+  const refreshUserSession = useCallback(async () => {
     try {
       console.log("[Auth] Attempting to refresh session")
       setSessionStatus((prev) => ({
@@ -182,10 +183,13 @@ export function AuthProvider({ children }: { children: ReactNode }) {
       console.error("[Auth] Error refreshing session:", err)
       return false
     }
-  }
+  }, [supabase])
 
-  // Check if the user is logged in
+  // Check if the user is logged in - only run once on mount
   useEffect(() => {
+    // Skip if already initialized
+    if (isInitialized) return
+
     const checkUser = async () => {
       try {
         console.log("[Auth] Initial auth check")
@@ -215,6 +219,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
           }
 
           setIsLoading(false)
+          setIsInitialized(true)
           return
         }
 
@@ -297,10 +302,20 @@ export function AuthProvider({ children }: { children: ReactNode }) {
         })
       } finally {
         setIsLoading(false)
+        setIsInitialized(true)
       }
     }
 
-    // Set up auth state change listener
+    checkUser()
+  }, [isInitialized, refreshUserSession, supabase])
+
+  // Set up auth state change listener - separate from the initial check
+  useEffect(() => {
+    // Skip if not initialized yet
+    if (!isInitialized) return
+
+    console.log("[Auth] Setting up auth state change listener")
+
     const {
       data: { subscription },
     } = supabase.auth.onAuthStateChange(async (event, session) => {
@@ -359,9 +374,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
       setIsLoading(false)
     })
 
-    checkUser()
-
-    // Set up periodic session check
+    // Set up periodic session check - but only if initialized
     const sessionCheckInterval = setInterval(
       () => {
         if (!isLoading) {
@@ -377,122 +390,128 @@ export function AuthProvider({ children }: { children: ReactNode }) {
       subscription.unsubscribe()
       clearInterval(sessionCheckInterval)
     }
-  }, [supabase])
+  }, [isInitialized, isLoading, checkSession, supabase])
 
   // Sign in with email and password
-  const signIn = async (email: string, password: string) => {
-    try {
-      console.log("[Auth] Attempting sign in:", email)
-      setIsLoading(true)
-      setError(null)
-
-      const { data, error } = await supabase.auth.signInWithPassword({
-        email,
-        password,
-      })
-
-      if (error) {
-        console.error("[Auth] Sign in error:", error)
-        throw error
-      }
-
-      console.log("[Auth] Sign in successful:", data.user?.id)
-
-      addToast({
-        title: "Signed in successfully",
-        description: "Welcome back!",
-        type: "success",
-      })
-
-      return {}
-    } catch (err: any) {
-      console.error("[Auth] Error signing in:", err)
-      const errorMessage = err.message || "Invalid email or password. Please try again."
-      setError(errorMessage)
-      return { error: errorMessage }
-    } finally {
-      setIsLoading(false)
-    }
-  }
-
-  // Sign up with email and password - SIMPLIFIED APPROACH
-  const signUp = async (email: string, password: string, fullName: string) => {
-    try {
-      console.log("[Auth] Attempting sign up:", email)
-      setIsLoading(true)
-      setError(null)
-
-      // Validate password length
-      if (password.length < 6) {
-        const errorMessage = "Password must be at least 6 characters long"
-        console.error("[Auth] Password validation failed")
-        setError(errorMessage)
-        return { error: errorMessage }
-      }
-
-      // Use the built-in Supabase signup method
-      const { data, error: signUpError } = await supabase.auth.signUp({
-        email,
-        password,
-        options: {
-          data: {
-            full_name: fullName,
-          },
-        },
-      })
-
-      if (signUpError) {
-        console.error("[Auth] Sign up error:", signUpError)
-        throw signUpError
-      }
-
-      if (!data?.user) {
-        console.error("[Auth] No user returned from sign up")
-        throw new Error("Failed to create user account")
-      }
-
-      console.log("[Auth] Sign up successful:", data.user.id)
-
-      // Try to create the profile manually
+  const signIn = useCallback(
+    async (email: string, password: string) => {
       try {
-        const { error: profileError } = await supabase.from("profiles").insert({
-          id: data.user.id,
-          full_name: fullName,
-          email: email,
-          role: "user",
-          created_at: new Date().toISOString(),
-          updated_at: new Date().toISOString(),
+        console.log("[Auth] Attempting sign in:", email)
+        setIsLoading(true)
+        setError(null)
+
+        const { data, error } = await supabase.auth.signInWithPassword({
+          email,
+          password,
         })
 
-        if (profileError) {
-          console.error("[Auth] Error creating profile:", profileError)
-        } else {
-          console.log("[Auth] Profile created successfully")
+        if (error) {
+          console.error("[Auth] Sign in error:", error)
+          throw error
         }
-      } catch (profileError) {
-        console.error("[Auth] Exception creating profile:", profileError)
-        // Continue even if profile creation fails - the trigger should handle it
+
+        console.log("[Auth] Sign in successful:", data.user?.id)
+
+        addToast({
+          title: "Signed in successfully",
+          description: "Welcome back!",
+          type: "success",
+        })
+
+        return {}
+      } catch (err: any) {
+        console.error("[Auth] Error signing in:", err)
+        const errorMessage = err.message || "Invalid email or password. Please try again."
+        setError(errorMessage)
+        return { error: errorMessage }
+      } finally {
+        setIsLoading(false)
       }
+    },
+    [addToast, supabase],
+  )
 
-      addToast({
-        title: "Account created successfully",
-        description: "Welcome to TurGame!",
-        type: "success",
-      })
+  // Sign up with email and password
+  const signUp = useCallback(
+    async (email: string, password: string, fullName: string) => {
+      try {
+        console.log("[Auth] Attempting sign up:", email)
+        setIsLoading(true)
+        setError(null)
 
-      return {}
-    } catch (err: any) {
-      console.error("[Auth] Error signing up:", err)
-      const errorMessage = err.message || "Failed to create account. Please try again."
-      setError(errorMessage)
-      return { error: errorMessage }
-    } finally {
-      setIsLoading(false)
-    }
-  }
+        // Validate password length
+        if (password.length < 6) {
+          const errorMessage = "Password must be at least 6 characters long"
+          console.error("[Auth] Password validation failed")
+          setError(errorMessage)
+          return { error: errorMessage }
+        }
+
+        // Use the built-in Supabase signup method
+        const { data, error: signUpError } = await supabase.auth.signUp({
+          email,
+          password,
+          options: {
+            data: {
+              full_name: fullName,
+            },
+          },
+        })
+
+        if (signUpError) {
+          console.error("[Auth] Sign up error:", signUpError)
+          throw signUpError
+        }
+
+        if (!data?.user) {
+          console.error("[Auth] No user returned from sign up")
+          throw new Error("Failed to create user account")
+        }
+
+        console.log("[Auth] Sign up successful:", data.user.id)
+
+        // Try to create the profile manually
+        try {
+          const { error: profileError } = await supabase.from("profiles").insert({
+            id: data.user.id,
+            full_name: fullName,
+            email: email,
+            role: "user",
+            created_at: new Date().toISOString(),
+            updated_at: new Date().toISOString(),
+          })
+
+          if (profileError) {
+            console.error("[Auth] Error creating profile:", profileError)
+          } else {
+            console.log("[Auth] Profile created successfully")
+          }
+        } catch (profileError) {
+          console.error("[Auth] Exception creating profile:", profileError)
+          // Continue even if profile creation fails - the trigger should handle it
+        }
+
+        addToast({
+          title: "Account created successfully",
+          description: "Welcome to TurGame!",
+          type: "success",
+        })
+
+        return {}
+      } catch (err: any) {
+        console.error("[Auth] Error signing up:", err)
+        const errorMessage = err.message || "Failed to create account. Please try again."
+        setError(errorMessage)
+        return { error: errorMessage }
+      } finally {
+        setIsLoading(false)
+      }
+    },
+    [addToast, supabase],
+  )
 
   // Sign in with Google
-  const handleSignInWithGoogle = async () => {
+  const handleSignInWithGoogle = useCallback(async () => {
     try {
       console.log("[Auth] Attempting Google sign in")
       setIsLoading(true)
@@ -520,10 +539,10 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     } finally {
       setIsLoading(false)
     }
-  }
+  }, [supabase])
 
   // Sign out
-  const signOut = async () => {
+  const signOut = useCallback(async () => {
     try {
       console.log("[Auth] Attempting sign out")
       setIsLoading(true)
@@ -562,7 +581,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     } finally {
       setIsLoading(false)
     }
-  }
+  }, [addToast, router, supabase])
 
   // Create the context value
   const value = {

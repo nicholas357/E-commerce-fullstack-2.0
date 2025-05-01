@@ -173,22 +173,6 @@ export function setAuthCookie(userData: any) {
       secure: options.secure,
     })
 
-    // Verify the cookies were set
-    setTimeout(() => {
-      const cookies = parseCookies(document.cookie)
-      if (cookies[AUTH_COOKIE_NAME]) {
-        console.log("[Auth Cookies] Verified custom cookie was set successfully")
-      } else {
-        console.error("[Auth Cookies] Failed to set custom cookie - not found after setting")
-      }
-
-      if (cookies[supabaseCookieName]) {
-        console.log("[Auth Cookies] Verified Supabase cookie was set successfully")
-      } else {
-        console.error("[Auth Cookies] Failed to set Supabase cookie - not found after setting")
-      }
-    }, 100)
-
     return true
   } catch (err) {
     console.error("[Auth Cookies] Error setting auth cookies:", err)
