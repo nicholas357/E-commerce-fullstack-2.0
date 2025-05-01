@@ -3,7 +3,7 @@
 import { useState, useEffect } from "react"
 import { useAuth } from "@/context/auth-context"
 import { useToast } from "@/components/ui/toast-provider"
-import { signInWithOAuth } from "@/lib/supabase/client-client"
+import { createClient } from "@/lib/supabase/client"
 
 export function GoogleLoginButton() {
   const [isLoading, setIsLoading] = useState(false)
@@ -40,21 +40,45 @@ export function GoogleLoginButton() {
       const currentPath = window.location.pathname
       localStorage.setItem("authReturnPath", currentPath)
 
-      // Use our custom OAuth function instead of the context function
-      const { error } = await signInWithOAuth("google", `${window.location.origin}/auth/callback`)
+      // Ensure we have a fresh Supabase client
+      const supabase = createClient()
+
+      // First check if the client is connected
+      try {
+        // Simple ping to check connection
+        await supabase.from("profiles").select("count", { count: "exact", head: true })
+        console.log("[GoogleLogin] Database connection verified")
+      } catch (connErr) {
+        console.error("[GoogleLogin] Connection check failed:", connErr)
+        // If connection fails, notify user and retry
+        if (retryCount < 2) {
+          addToast({
+            title: "Connection Issue",
+            description: "Reconnecting to service...",
+            type: "info",
+          })
+          setRetryCount((prev) => prev + 1)
+          // Short delay before retry
+          await new Promise((resolve) => setTimeout(resolve, 1000))
+          handleGoogleSignIn()
+          return
+        }
+      }
+
+      const { error } = await signInWithGoogle()
 
       if (error) {
         console.error("[GoogleLogin] Google sign in error:", error)
         addToast({
           title: "Authentication Error",
-          description: error.message || "Failed to sign in with Google. Please try again.",
+          description: error || "Failed to sign in with Google. Please try again.",
           type: "error",
         })
       } else {
         console.log("[GoogleLogin] Google sign in initiated successfully")
         // Success toast is handled after redirect
       }
-    } catch (error: any) {
+    } catch (error) {
       console.error("[GoogleLogin] Exception during Google sign in:", error)
       addToast({
         title: "Authentication Error",

@@ -3,7 +3,7 @@
 import type { ReactNode } from "react"
 import { useState, useEffect } from "react"
 import { SessionContextProvider } from "@supabase/auth-helpers-react"
-import { getSupabaseClient, resetClient, getConnectionStatus, checkConnection } from "@/lib/supabase/client-client"
+import { getSupabaseClient, resetClient, getConnectionStatus } from "@/lib/supabase/client-client"
 import { ToastProvider } from "@/components/ui/toast-provider"
 import { LoadingProvider } from "@/context/loading-context"
 import { AuthProvider } from "@/context/auth-context"
@@ -29,7 +29,7 @@ export function Providers({ children }: { children: ReactNode }) {
     }
 
     // Handle page visibility changes (tab switching, etc.)
-    const handleVisibilityChange = async () => {
+    const handleVisibilityChange = () => {
       if (document.visibilityState === "visible") {
         console.log("[Providers] Page became visible, checking connection")
         const connectionStatus = getConnectionStatus()
@@ -42,7 +42,6 @@ export function Providers({ children }: { children: ReactNode }) {
         ) {
           console.log("[Providers] Refreshing connection after visibility change")
           setSupabase(resetClient())
-          await checkConnection()
         }
       }
     }
@@ -67,7 +66,7 @@ export function Providers({ children }: { children: ReactNode }) {
   useEffect(() => {
     if (!isOnline) return
 
-    const periodicConnectionCheck = async () => {
+    const checkConnection = () => {
       const connectionStatus = getConnectionStatus()
 
       // If connection is lost or stale, reset it
@@ -78,12 +77,11 @@ export function Providers({ children }: { children: ReactNode }) {
       ) {
         console.log("[Providers] Refreshing stale connection")
         setSupabase(resetClient())
-        await checkConnection()
       }
     }
 
     // Check connection every 5 minutes
-    const interval = setInterval(periodicConnectionCheck, 5 * 60 * 1000)
+    const interval = setInterval(checkConnection, 5 * 60 * 1000)
 
     return () => clearInterval(interval)
   }, [isOnline])

@@ -67,7 +67,7 @@ export default function LoginPage() {
       window.history.replaceState({}, document.title, newUrl)
     }
 
-    // Store the current path for OAuth return
+    // Store the current path for OAuth returns
     if (typeof window !== "undefined") {
       // Store in both localStorage and cookie for redundancy
       localStorage.setItem("authReturnPath", window.location.pathname)

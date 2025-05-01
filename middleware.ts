@@ -42,8 +42,6 @@ export async function middleware(req: NextRequest) {
 
   // Check for our custom auth cookie
   const authCookie = req.cookies.get(AUTH_COOKIE_NAME)
-
-  // We'll primarily rely on our custom cookie, but check Supabase cookie as fallback
   const supabaseCookieName = getSupabaseCookieName(req)
   const supabaseCookie = supabaseCookieName ? req.cookies.get(supabaseCookieName) : null
 
@@ -114,18 +112,19 @@ export async function middleware(req: NextRequest) {
     }
   }
 
-  // Create the Supabase middleware client with custom options to prevent cookies
+  // Create the Supabase middleware client
   const supabase = createMiddlewareClient(
     { req, res },
     {
       supabaseUrl: process.env.NEXT_PUBLIC_SUPABASE_URL!,
       supabaseKey: process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY!,
-      options: {
-        auth: {
-          persistSession: false, // Disable cookie persistence
-          autoRefreshToken: true,
-          detectSessionInUrl: true,
-        },
+      cookieOptions: {
+        name: supabaseCookieName || "sb-auth-token",
+        lifetime: 60 * 60 * 24 * 30, // 30 days
+        domain: process.env.NODE_ENV === "production" ? req.headers.get("host")?.split(":")[0] || undefined : undefined,
+        path: "/",
+        sameSite: "lax",
+        secure: process.env.NODE_ENV === "production",
       },
     },
   )

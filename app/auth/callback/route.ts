@@ -23,20 +23,7 @@ export async function GET(request: NextRequest) {
 
   if (code) {
     try {
-      // Create a client with custom cookie options to prevent default cookies
-      const supabase = createRouteHandlerClient(
-        { cookies },
-        {
-          options: {
-            auth: {
-              persistSession: false, // Disable cookie persistence
-              autoRefreshToken: true,
-              detectSessionInUrl: true,
-            },
-          },
-        },
-      )
-
+      const supabase = createRouteHandlerClient({ cookies })
       const { error: exchangeError } = await supabase.auth.exchangeCodeForSession(code)
 
       if (exchangeError) {
@@ -47,8 +34,6 @@ export async function GET(request: NextRequest) {
       }
 
       console.log("[Auth Callback] Successfully exchanged code for session")
-
-      // We'll handle setting our custom cookie in the client
     } catch (err) {
       console.error("[Auth Callback] Exception during code exchange:", err)
       return NextResponse.redirect(
