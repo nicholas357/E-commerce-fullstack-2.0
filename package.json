@@ -62,7 +62,6 @@
     "@supabase/supabase-js": "latest",
     "framer-motion": "latest",
     "firebase": "latest",
-    "https:": "latest",
     "uuid": "latest",
     "js-cookie": "latest",
     "@supabase/ssr": "latest",
