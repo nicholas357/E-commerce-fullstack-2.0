@@ -5,12 +5,26 @@ import type React from "react"
 import { useState, useEffect } from "react"
 import Link from "next/link"
 import { useRouter } from "next/navigation"
-import { Eye, EyeOff, Mail, Lock, RefreshCw, AlertTriangle, Zap } from "lucide-react"
+import { Eye, EyeOff, Mail, Lock, RefreshCw } from "lucide-react"
 import { GamingButton } from "@/components/ui/gaming-button"
 import { GoogleLoginButton } from "@/components/google-login-button"
 import { useAuth } from "@/context/auth-context"
 import { EmergencyAuthBypass } from "@/components/emergency-auth-bypass"
-import { forceAuthentication, getUserFromCookie, isDirectlyAuthenticated } from "@/lib/direct-auth"
+import { useToast } from "@/components/ui/use-toast"
+
+// Import the auth cookie utilities
+import { setAuthCookie } from "@/lib/auth-cookies"
+
+// Add a function to manually set auth data after the imports
+const manuallySetAuthData = (userData: any) => {
+  try {
+    console.log("[Login] Manually setting auth data for user:", userData.id)
+    return setAuthCookie(userData)
+  } catch (err) {
+    console.error("[Login] Error manually setting auth data:", err)
+    return false
+  }
+}
 
 export default function LoginPage() {
   const [email, setEmail] = useState("")
@@ -24,19 +38,7 @@ export default function LoginPage() {
   const [redirectPath, setRedirectPath] = useState("/account")
   const [sessionCheckCount, setSessionCheckCount] = useState(0)
   const [bypassEnabled, setBypassEnabled] = useState(false)
-  const [isDirectAuth, setIsDirectAuth] = useState(false)
-  const [debugInfo, setDebugInfo] = useState<any>(null)
-
-  // Check if direct auth is working
-  useEffect(() => {
-    const directUser = getUserFromCookie()
-    setIsDirectAuth(Boolean(directUser))
-
-    if (directUser) {
-      console.log("[Login] Found directly authenticated user:", directUser.id)
-      collectDebugInfo()
-    }
-  }, [])
+  const { toast: addToast } = useToast()
 
   // Check if there's a redirect path in localStorage or URL
   useEffect(() => {
@@ -61,49 +63,7 @@ export default function LoginPage() {
       console.log("[Login] Emergency auth bypass is enabled")
       setBypassEnabled(true)
     }
-
-    // Check cookie status
-    collectDebugInfo()
   }, [])
-
-  // Collect debug information
-  const collectDebugInfo = async () => {
-    try {
-      const info: any = {
-        url: window.location.href,
-        cookies: document.cookie,
-        localStorage: {},
-        sessionStorage: {},
-        timestamp: new Date().toISOString(),
-        directAuth: isDirectlyAuthenticated(),
-        user: getUserFromCookie(),
-      }
-
-      // Collect localStorage items related to auth
-      for (let i = 0; i < localStorage.length; i++) {
-        const key = localStorage.key(i)
-        if (
-          key &&
-          (key.includes("supabase") || key.includes("auth") || key.includes("sb-") || key.includes("turgame"))
-        ) {
-          info.localStorage[key] = localStorage.getItem(key)
-        }
-      }
-
-      // Collect sessionStorage items
-      for (let i = 0; i < sessionStorage.length; i++) {
-        const key = sessionStorage.key(i)
-        if (key) {
-          info.sessionStorage[key] = sessionStorage.getItem(key)
-        }
-      }
-
-      setDebugInfo(info)
-      console.log("[Login] Debug info:", info)
-    } catch (err) {
-      console.error("[Login] Error collecting debug info:", err)
-    }
-  }
 
   // Redirect if already logged in
   useEffect(() => {
@@ -195,7 +155,6 @@ export default function LoginPage() {
     try {
       console.log("[Login] Manual session check")
       await checkSession()
-      collectDebugInfo()
     } catch (err) {
       console.error("[Login] Error in manual session check:", err)
     } finally {
@@ -208,7 +167,6 @@ export default function LoginPage() {
     try {
       console.log("[Login] Manual session refresh")
       await refreshUserSession()
-      collectDebugInfo()
     } catch (err) {
       console.error("[Login] Error in manual session refresh:", err)
     } finally {
@@ -218,9 +176,16 @@ export default function LoginPage() {
 
   const handleForceRedirect = () => {
     console.log("[Login] Forcing redirect to:", redirectPath)
+
+    // If we have user data, set the auth cookie
+    if (user) {
+      manuallySetAuthData(user)
+    }
+
     // Set emergency bypass flag
     sessionStorage.setItem("emergency_auth_bypass", "true")
-    document.cookie = `emergency_auth_bypass=true; path=/; max-age=${60 * 60}` // 1 hour
+    document.cookie = "emergency_auth_bypass=true; path=/; max-age=300" // 5 minutes
+
     // Force navigation
     window.location.href = redirectPath
   }
@@ -228,25 +193,8 @@ export default function LoginPage() {
   const handleEnableBypass = () => {
     console.log("[Login] Enabling emergency auth bypass")
     sessionStorage.setItem("emergency_auth_bypass", "true")
-    document.cookie = `emergency_auth_bypass=true; path=/; max-age=${60 * 60}` // 1 hour
+    document.cookie = "emergency_auth_bypass=true; path=/; max-age=300" // 5 minutes
     setBypassEnabled(true)
-    collectDebugInfo()
-  }
-
-  const handleForceAuth = async () => {
-    setIsSubmitting(true)
-    try {
-      console.log("[Login] Forcing authentication")
-      const success = await forceAuthentication(redirectPath)
-      if (!success) {
-        setFormError("Failed to force authentication. Please try again.")
-      }
-    } catch (err) {
-      console.error("[Login] Error forcing authentication:", err)
-      setFormError("An error occurred while forcing authentication")
-    } finally {
-      setIsSubmitting(false)
-    }
   }
 
   return (
@@ -263,9 +211,6 @@ export default function LoginPage() {
               Emergency bypass mode enabled
             </div>
           )}
-          {isDirectAuth && (
-            <div className="mt-2 rounded-md bg-blue-500/10 p-1 text-xs text-blue-500">Direct authentication active</div>
-          )}
         </div>
 
         {formError && (
@@ -274,114 +219,81 @@ export default function LoginPage() {
           </div>
         )}
 
-        {isDirectAuth ? (
-          <div className="mb-6 space-y-4">
-            <div className="rounded-md border border-blue-500/20 bg-blue-500/10 p-4 text-sm text-blue-500">
-              <div className="flex items-center gap-2">
-                <AlertTriangle className="h-4 w-4" />
-                <p className="font-medium">You appear to be already authenticated</p>
+        <form onSubmit={handleSubmit} className="space-y-4">
+          <div>
+            <label htmlFor="email" className="mb-2 block text-sm font-medium text-gray-400">
+              Email
+            </label>
+            <div className="relative">
+              <div className="pointer-events-none absolute inset-y-0 left-0 flex items-center pl-3">
+                <Mail className="h-5 w-5 text-gray-500" />
               </div>
-              <p className="mt-1">
-                Your user credentials are stored, but the session might not be working correctly. Use the options below
-                to access your account.
-              </p>
+              <input
+                id="email"
+                type="email"
+                value={email}
+                onChange={(e) => setEmail(e.target.value)}
+                className="block w-full rounded-md border border-border bg-background py-2 pl-10 pr-3 text-white placeholder-gray-500 focus:border-amber-500 focus:outline-none focus:ring-1 focus:ring-amber-500"
+                placeholder="Enter your email"
+                required
+              />
             </div>
-
-            <GamingButton onClick={handleForceRedirect} className="w-full">
-              Continue to Account
-            </GamingButton>
-
-            <GamingButton onClick={handleForceAuth} variant="outline" className="w-full" disabled={isSubmitting}>
-              {isSubmitting ? (
-                <span className="flex items-center justify-center">
-                  <RefreshCw className="mr-2 h-4 w-4 animate-spin" />
-                  Processing...
-                </span>
-              ) : (
-                <span className="flex items-center justify-center">
-                  <Zap className="mr-2 h-4 w-4" />
-                  Force Authentication
-                </span>
-              )}
-            </GamingButton>
           </div>
-        ) : (
-          <form onSubmit={handleSubmit} className="space-y-4">
-            <div>
-              <label htmlFor="email" className="mb-2 block text-sm font-medium text-gray-400">
-                Email
+
+          <div>
+            <label htmlFor="password" className="mb-2 block text-sm font-medium text-gray-400">
+              Password
+            </label>
+            <div className="relative">
+              <div className="pointer-events-none absolute inset-y-0 left-0 flex items-center pl-3">
+                <Lock className="h-5 w-5 text-gray-500" />
+              </div>
+              <input
+                id="password"
+                type={showPassword ? "text" : "password"}
+                value={password}
+                onChange={(e) => setPassword(e.target.value)}
+                className="block w-full rounded-md border border-border bg-background py-2 pl-10 pr-10 text-white placeholder-gray-500 focus:border-amber-500 focus:outline-none focus:ring-1 focus:ring-amber-500"
+                placeholder="Enter your password"
+                required
+              />
+              <button
+                type="button"
+                className="absolute inset-y-0 right-0 flex items-center pr-3 text-gray-500 hover:text-amber-500"
+                onClick={() => setShowPassword(!showPassword)}
+              >
+                {showPassword ? <EyeOff className="h-5 w-5" /> : <Eye className="h-5 w-5" />}
+              </button>
+            </div>
+          </div>
+
+          <div className="flex items-center justify-between">
+            <div className="flex items-center">
+              <input
+                id="remember-me"
+                type="checkbox"
+                className="h-4 w-4 rounded border-border bg-background text-amber-500 focus:ring-amber-500"
+              />
+              <label htmlFor="remember-me" className="ml-2 block text-sm text-gray-400">
+                Remember me
               </label>
-              <div className="relative">
-                <div className="pointer-events-none absolute inset-y-0 left-0 flex items-center pl-3">
-                  <Mail className="h-5 w-5 text-gray-500" />
-                </div>
-                <input
-                  id="email"
-                  type="email"
-                  value={email}
-                  onChange={(e) => setEmail(e.target.value)}
-                  className="block w-full rounded-md border border-border bg-background py-2 pl-10 pr-3 text-white placeholder-gray-500 focus:border-amber-500 focus:outline-none focus:ring-1 focus:ring-amber-500"
-                  placeholder="Enter your email"
-                  required
-                />
-              </div>
             </div>
+            <Link href="/account/forgot-password" className="text-sm text-amber-500 hover:text-amber-400">
+              Forgot password?
+            </Link>
+          </div>
 
-            <div>
-              <label htmlFor="password" className="mb-2 block text-sm font-medium text-gray-400">
-                Password
-              </label>
-              <div className="relative">
-                <div className="pointer-events-none absolute inset-y-0 left-0 flex items-center pl-3">
-                  <Lock className="h-5 w-5 text-gray-500" />
-                </div>
-                <input
-                  id="password"
-                  type={showPassword ? "text" : "password"}
-                  value={password}
-                  onChange={(e) => setPassword(e.target.value)}
-                  className="block w-full rounded-md border border-border bg-background py-2 pl-10 pr-10 text-white placeholder-gray-500 focus:border-amber-500 focus:outline-none focus:ring-1 focus:ring-amber-500"
-                  placeholder="Enter your password"
-                  required
-                />
-                <button
-                  type="button"
-                  className="absolute inset-y-0 right-0 flex items-center pr-3 text-gray-500 hover:text-amber-500"
-                  onClick={() => setShowPassword(!showPassword)}
-                >
-                  {showPassword ? <EyeOff className="h-5 w-5" /> : <Eye className="h-5 w-5" />}
-                </button>
-              </div>
-            </div>
-
-            <div className="flex items-center justify-between">
-              <div className="flex items-center">
-                <input
-                  id="remember-me"
-                  type="checkbox"
-                  className="h-4 w-4 rounded border-border bg-background text-amber-500 focus:ring-amber-500"
-                />
-                <label htmlFor="remember-me" className="ml-2 block text-sm text-gray-400">
-                  Remember me
-                </label>
-              </div>
-              <Link href="/account/forgot-password" className="text-sm text-amber-500 hover:text-amber-400">
-                Forgot password?
-              </Link>
-            </div>
-
-            <GamingButton type="submit" variant="amber" className="w-full" disabled={isSubmitting}>
-              {isSubmitting ? (
-                <span className="flex items-center justify-center">
-                  <span className="mr-2 h-4 w-4 animate-spin rounded-full border-2 border-white border-t-transparent"></span>
-                  Signing in...
-                </span>
-              ) : (
-                "Sign In"
-              )}
-            </GamingButton>
-          </form>
-        )}
+          <GamingButton type="submit" variant="amber" className="w-full" disabled={isSubmitting}>
+            {isSubmitting ? (
+              <span className="flex items-center justify-center">
+                <span className="mr-2 h-4 w-4 animate-spin rounded-full border-2 border-white border-t-transparent"></span>
+                Signing in...
+              </span>
+            ) : (
+              "Sign In"
+            )}
+          </GamingButton>
+        </form>
 
         <div className="mt-4 flex flex-wrap justify-center gap-2">
           <button
@@ -424,27 +336,45 @@ export default function LoginPage() {
             Enable Bypass
           </button>
           <span className="text-gray-500">|</span>
-          <button onClick={handleForceAuth} className="flex items-center text-xs text-amber-500 hover:text-amber-400">
-            Force Auth
+          <button
+            onClick={() => {
+              if (user) {
+                const success = manuallySetAuthData(user)
+                if (success) {
+                  addToast({
+                    title: "Auth cookie set",
+                    description: "Auth cookie has been manually set",
+                    type: "success",
+                  })
+                }
+              } else {
+                addToast({
+                  title: "No user data",
+                  description: "No user data available to set cookie",
+                  type: "error",
+                })
+              }
+            }}
+            className="flex items-center text-xs text-amber-500 hover:text-amber-400"
+          >
+            Set Auth Cookie
           </button>
         </div>
 
-        {!isDirectAuth && (
-          <div className="mt-6">
-            <div className="relative">
-              <div className="absolute inset-0 flex items-center">
-                <div className="w-full border-t border-border"></div>
-              </div>
-              <div className="relative flex justify-center text-sm">
-                <span className="bg-card px-2 text-gray-400">Or continue with</span>
-              </div>
+        <div className="mt-6">
+          <div className="relative">
+            <div className="absolute inset-0 flex items-center">
+              <div className="w-full border-t border-border"></div>
             </div>
-
-            <div className="mt-6">
-              <GoogleLoginButton />
+            <div className="relative flex justify-center text-sm">
+              <span className="bg-card px-2 text-gray-400">Or continue with</span>
             </div>
           </div>
-        )}
+
+          <div className="mt-6">
+            <GoogleLoginButton />
+          </div>
+        </div>
 
         <div className="mt-6 text-center text-sm text-gray-400">
           Don't have an account?{" "}
@@ -452,33 +382,6 @@ export default function LoginPage() {
             Sign up
           </Link>
         </div>
-
-        {/* Debug Info */}
-        {debugInfo && (
-          <div
-            className="mt-6 cursor-pointer rounded border border-gray-700 bg-gray-800/50 p-2"
-            onClick={collectDebugInfo}
-          >
-            <div className="flex items-center justify-between">
-              <p className="text-xs font-medium text-gray-400">Debug Information (click to refresh)</p>
-            </div>
-            <div className="mt-1 max-h-40 overflow-auto">
-              <pre className="text-xs text-gray-500">
-                {JSON.stringify(
-                  {
-                    isDirectAuth: debugInfo.directAuth,
-                    hasUser: Boolean(debugInfo.user),
-                    sessionChecks: sessionCheckCount,
-                    cookiesPresent: Boolean(debugInfo.cookies),
-                    url: debugInfo.url,
-                  },
-                  null,
-                  2,
-                )}
-              </pre>
-            </div>
-          </div>
-        )}
       </div>
     </div>
   )

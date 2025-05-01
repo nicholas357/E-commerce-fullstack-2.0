@@ -4,6 +4,8 @@ import { useEffect, useState, type ReactNode } from "react"
 import { useRouter } from "next/navigation"
 import { useAuth } from "@/context/auth-context"
 import { enableEmergencyBypass, directCheckAuthState } from "@/lib/auth-direct"
+// Import the auth cookie utilities
+import { getAuthFromCookie } from "@/lib/auth-cookies"
 
 interface ProtectedRouteWrapperProps {
   children: ReactNode
@@ -16,6 +18,7 @@ export function ProtectedRouteWrapper({ children, fallbackUrl = "/account/login"
   const [bypassEnabled, setBypassEnabled] = useState(false)
   const router = useRouter()
 
+  // Update the checkAuth function in useEffect
   useEffect(() => {
     const checkAuth = async () => {
       try {
@@ -27,6 +30,14 @@ export function ProtectedRouteWrapper({ children, fallbackUrl = "/account/login"
         if (bypass) {
           console.log("[Protected Route] Emergency bypass enabled, allowing access")
           setBypassEnabled(true)
+          setIsChecking(false)
+          return
+        }
+
+        // Check for our custom auth cookie
+        const authData = getAuthFromCookie()
+        if (authData && authData.id) {
+          console.log("[Protected Route] Auth cookie found, allowing access")
           setIsChecking(false)
           return
         }
@@ -45,9 +56,9 @@ export function ProtectedRouteWrapper({ children, fallbackUrl = "/account/login"
         }
 
         // No user, no bypass, and not loading - check direct auth state
-        const { hasAuthToken, hasLocalStorageAuth } = await directCheckAuthState()
+        const { hasAuthToken, hasLocalStorageAuth, hasCustomAuthCookie } = await directCheckAuthState()
 
-        if (hasAuthToken || hasLocalStorageAuth) {
+        if (hasAuthToken || hasLocalStorageAuth || hasCustomAuthCookie) {
           console.log("[Protected Route] Auth tokens found but no user, enabling bypass")
           enableEmergencyBypass()
           setBypassEnabled(true)

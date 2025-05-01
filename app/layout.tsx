@@ -8,6 +8,9 @@ import { Providers } from "@/components/providers"
 import { ScrollToTop } from "@/components/scroll-to-top"
 import { AuthDebugPanel } from "@/components/auth-debug-panel"
 import { Suspense } from "react"
+// Import the auth cookie debugger
+import { AuthCookieDebugger } from "@/components/auth-cookie-debugger"
+import { ToastProvider } from "@/components/ui/toast-provider"
 
 const inter = Inter({ subsets: ["latin"] })
 
@@ -34,12 +37,15 @@ export default function RootLayout({
   children: React.ReactNode
 }>) {
   return (
-    <html lang="en">
+    <html lang="en" suppressHydrationWarning>
       <body className={inter.className}>
         <Suspense fallback={<SkeletonLoader />}>
           <Providers>
             <Header />
-            <main className="min-h-screen">{children}</main>
+            <ToastProvider>
+              <main className="min-h-screen">{children}</main>
+              <AuthCookieDebugger />
+            </ToastProvider>
             <Footer />
             <ScrollToTop />
             <AuthDebugPanel />
