@@ -11,6 +11,7 @@ import { Suspense } from "react"
 // Import the auth cookie debugger
 import { AuthCookieDebugger } from "@/components/auth-cookie-debugger"
 import { ToastProvider } from "@/components/ui/toast-provider"
+import { ConnectionRecovery } from "@/components/connection-recovery"
 
 const inter = Inter({ subsets: ["latin"] })
 
@@ -41,6 +42,7 @@ export default function RootLayout({
       <body className={inter.className}>
         <Suspense fallback={<SkeletonLoader />}>
           <Providers>
+            <ConnectionRecovery />
             <Header />
             <ToastProvider>
               <main className="min-h-screen">{children}</main>

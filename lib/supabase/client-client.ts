@@ -4,6 +4,13 @@ import { getEnv } from "@/lib/config"
 // Create a singleton instance of the Supabase client
 let supabaseClient: ReturnType<typeof createBrowserClient> | null = null
 
+// Track connection status
+let connectionStatus = {
+  isConnected: false,
+  lastConnected: null as Date | null,
+  reconnectAttempts: 0,
+}
+
 export function getClientClient() {
   if (supabaseClient) {
     console.log("[Supabase Client] Returning existing client instance")
@@ -27,7 +34,7 @@ export function getClientClient() {
         const cookies = document.cookie.split(";").reduce(
           (acc, cookie) => {
             const [key, value] = cookie.trim().split("=")
-            if (key) acc[key] = decodeURIComponent(value || "")
+            if (key) acc[key.trim()] = decodeURIComponent(value || "")
             return acc
           },
           {} as Record<string, string>,
@@ -55,7 +62,19 @@ export function getClientClient() {
         }; samesite=${options?.sameSite || "lax"}${options?.secure || location.protocol === "https:" ? "; secure" : ""}`
       },
     },
+    persistSession: true, // Ensure session is persisted
+    autoRefreshToken: true, // Automatically refresh the token
   })
+
+  // Initialize connection status
+  connectionStatus = {
+    isConnected: true,
+    lastConnected: new Date(),
+    reconnectAttempts: 0,
+  }
+
+  // Set up connection health check
+  setupConnectionHealthCheck()
 
   return supabaseClient
 }
@@ -73,9 +92,32 @@ export async function checkSessionStatus() {
       expiresAt: data.session?.expires_at ? new Date(data.session.expires_at * 1000).toISOString() : null,
       error: error?.message,
     })
+
+    // Update connection status on successful check
+    connectionStatus = {
+      isConnected: true,
+      lastConnected: new Date(),
+      reconnectAttempts: 0,
+    }
+
     return { data, error }
   } catch (err) {
     console.error("[Supabase Client] Error checking session:", err)
+
+    // Update connection status on failure
+    connectionStatus = {
+      ...connectionStatus,
+      isConnected: false,
+      reconnectAttempts: connectionStatus.reconnectAttempts + 1,
+    }
+
+    // Try to reconnect
+    if (connectionStatus.reconnectAttempts < 3) {
+      console.log("[Supabase Client] Attempting to reconnect...")
+      resetClient()
+      return checkSessionStatus()
+    }
+
     return { data: { session: null }, error: err }
   }
 }
@@ -90,9 +132,99 @@ export async function refreshSession() {
       success: Boolean(data.session),
       error: error?.message,
     })
+
+    // Update connection status on successful refresh
+    if (!error) {
+      connectionStatus = {
+        isConnected: true,
+        lastConnected: new Date(),
+        reconnectAttempts: 0,
+      }
+    }
+
     return { data, error }
   } catch (err) {
     console.error("[Supabase Client] Error refreshing session:", err)
+
+    // Update connection status on failure
+    connectionStatus = {
+      ...connectionStatus,
+      isConnected: false,
+      reconnectAttempts: connectionStatus.reconnectAttempts + 1,
+    }
+
+    // Try to reconnect
+    if (connectionStatus.reconnectAttempts < 3) {
+      console.log("[Supabase Client] Attempting to reconnect...")
+      resetClient()
+      return refreshSession()
+    }
+
     return { data: { session: null }, error: err }
   }
+}
+
+// Reset the client to force a new connection
+export function resetClient() {
+  console.log("[Supabase Client] Resetting client instance")
+  supabaseClient = null
+  return getClientClient()
+}
+
+// Check connection health and reconnect if needed
+function setupConnectionHealthCheck() {
+  if (typeof window !== "undefined") {
+    // Check connection on page visibility change (when user returns to the tab)
+    document.addEventListener("visibilitychange", () => {
+      if (document.visibilityState === "visible") {
+        console.log("[Supabase Client] Page became visible, checking connection")
+        checkConnection()
+      }
+    })
+
+    // Check connection on online event (when network is restored)
+    window.addEventListener("online", () => {
+      console.log("[Supabase Client] Network connection restored, checking database connection")
+      checkConnection()
+    })
+
+    // Set up periodic health check
+    setInterval(checkConnection, 60000) // Check every minute
+  }
+}
+
+// Check connection and reconnect if needed
+async function checkConnection() {
+  if (
+    !connectionStatus.isConnected ||
+    (connectionStatus.lastConnected && new Date().getTime() - connectionStatus.lastConnected.getTime() > 5 * 60 * 1000)
+  ) {
+    console.log("[Supabase Client] Connection check: reconnecting...")
+    try {
+      const client = resetClient()
+      const { error } = await client.from("profiles").select("count", { count: "exact", head: true })
+
+      if (error) {
+        console.error("[Supabase Client] Connection check failed:", error)
+        connectionStatus.isConnected = false
+        connectionStatus.reconnectAttempts += 1
+      } else {
+        console.log("[Supabase Client] Connection check successful")
+        connectionStatus = {
+          isConnected: true,
+          lastConnected: new Date(),
+          reconnectAttempts: 0,
+        }
+      }
+    } catch (err) {
+      console.error("[Supabase Client] Connection check exception:", err)
+      connectionStatus.isConnected = false
+      connectionStatus.reconnectAttempts += 1
+    }
+  }
+}
+
+// Export connection status for monitoring
+export function getConnectionStatus() {
+  return { ...connectionStatus }
 }

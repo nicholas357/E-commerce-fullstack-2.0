@@ -71,7 +71,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     console.log("[Auth] Debug mode:", !debugMode)
   }, [debugMode])
 
-  // Safely fetch profile with retries
+  // Safely fetch profile with retries and connection recovery
   const fetchUserProfile = useCallback(async (userId: string, retries = 3): Promise<any> => {
     try {
       console.log(`[Auth] Fetching profile for user ${userId}, attempt ${4 - retries}`)
@@ -98,6 +98,20 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     } catch (err) {
       console.error(`[Auth] Failed to fetch profile after ${4 - retries} attempts:`, err)
 
+      // If this looks like a connection issue, try to reset the client
+      if (
+        err instanceof Error &&
+        (err.message.includes("Failed to fetch") ||
+          err.message.includes("NetworkError") ||
+          err.message.includes("network") ||
+          err.message.includes("connection"))
+      ) {
+        console.log("[Auth] Detected connection issue, resetting client...")
+        // Import and use the resetClient function
+        const { resetClient } = await import("@/lib/supabase/client-client")
+        resetClient()
+      }
+
       // Return a minimal profile to prevent breaking the auth flow
       return {
         id: userId,
@@ -107,7 +121,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     }
   }, [])
 
-  // Function to check session status - using useCallback to prevent recreation on each render
+  // Function to check session status with connection recovery
   const checkSession = useCallback(async () => {
     try {
       console.log("[Auth] Checking session status")
@@ -149,11 +163,40 @@ export function AuthProvider({ children }: { children: ReactNode }) {
 
       if (error) {
         console.error("[Auth] Session check error:", error)
+
+        // If this looks like a connection issue, try to reset the client
+        if (
+          error instanceof Error &&
+          (error.message.includes("Failed to fetch") ||
+            error.message.includes("NetworkError") ||
+            error.message.includes("network") ||
+            error.message.includes("connection"))
+        ) {
+          console.log("[Auth] Detected connection issue during session check, resetting client...")
+          // Import and use the resetClient function
+          const { resetClient } = await import("@/lib/supabase/client-client")
+          resetClient()
+        }
       }
 
       return hasSession
     } catch (err) {
       console.error("[Auth] Error checking session:", err)
+
+      // If this looks like a connection issue, try to reset the client
+      if (
+        err instanceof Error &&
+        (err.message.includes("Failed to fetch") ||
+          err.message.includes("NetworkError") ||
+          err.message.includes("network") ||
+          err.message.includes("connection"))
+      ) {
+        console.log("[Auth] Detected connection issue during session check exception, resetting client...")
+        // Import and use the resetClient function
+        const { resetClient } = await import("@/lib/supabase/client-client")
+        resetClient()
+      }
+
       return false
     }
   }, [user])
@@ -374,6 +417,17 @@ export function AuthProvider({ children }: { children: ReactNode }) {
 
     console.log("[Auth] Setting up auth state change listener")
 
+    // Add connection recovery on page visibility change
+    const handleVisibilityChange = async () => {
+      if (document.visibilityState === "visible") {
+        console.log("[Auth] Page became visible, checking session")
+        await checkSession()
+      }
+    }
+
+    // Set up visibility change listener
+    document.addEventListener("visibilitychange", handleVisibilityChange)
+
     const {
       data: { subscription },
     } = supabase.auth.onAuthStateChange(async (event, session) => {
@@ -460,6 +514,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
       console.log("[Auth] Cleaning up auth subscriptions")
       subscription.unsubscribe()
       clearInterval(sessionCheckInterval)
+      document.removeEventListener("visibilitychange", handleVisibilityChange)
     }
   }, [isInitialized, isLoading, checkSession, supabase, fetchUserProfile])
 
