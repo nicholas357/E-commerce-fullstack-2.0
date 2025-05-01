@@ -6,16 +6,29 @@ import { Header } from "@/components/header"
 import { Footer } from "@/components/footer"
 import { Providers } from "@/components/providers"
 import { ScrollToTop } from "@/components/scroll-to-top"
-import { ToastProvider } from "@/components/ui/toast-provider"
+import { AuthDebugPanel } from "@/components/auth-debug-panel"
+import { Suspense } from "react"
+// Import the auth cookie debugger
 import { AuthCookieDebugger } from "@/components/auth-cookie-debugger"
-import { Suspense } from "react" // ✅ Added for useSearchParams safety
+import { ToastProvider } from "@/components/ui/toast-provider"
 
 const inter = Inter({ subsets: ["latin"] })
 
 export const metadata: Metadata = {
-  title: "TurGame - Digital Gaming Store",
+  title: "TurGame - Digital Game Store",
   description: "Buy digital games, gift cards, and more",
   generator: "v0.dev",
+}
+
+function SkeletonLoader() {
+  return (
+    <div className="min-h-screen animate-pulse px-4 py-6 space-y-6">
+      <div className="h-12 bg-gray-200 rounded-md" />
+      <div className="h-6 bg-gray-200 rounded w-3/4" />
+      <div className="h-64 bg-gray-200 rounded-md" />
+      <div className="h-4 bg-gray-200 rounded w-1/2" />
+    </div>
+  )
 }
 
 export default function RootLayout({
@@ -24,21 +37,20 @@ export default function RootLayout({
   children: React.ReactNode
 }>) {
   return (
-    <html lang="en">
+    <html lang="en" suppressHydrationWarning>
       <body className={inter.className}>
-        <Providers>
-          <ToastProvider>
-            <Suspense fallback={null}>
-              <div className="flex min-h-screen flex-col">
-                <Header />
-                <main className="flex-1">{children}</main>
-                <Footer />
-              </div>
-              <ScrollToTop />
+        <Suspense fallback={<SkeletonLoader />}>
+          <Providers>
+            <Header />
+            <ToastProvider>
+              <main className="min-h-screen">{children}</main>
               <AuthCookieDebugger />
-            </Suspense>
-          </ToastProvider>
-        </Providers>
+            </ToastProvider>
+            <Footer />
+            <ScrollToTop />
+            <AuthDebugPanel />
+          </Providers>
+        </Suspense>
       </body>
     </html>
   )
