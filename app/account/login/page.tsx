@@ -2,396 +2,203 @@
 
 import type React from "react"
 
-import { useState, useEffect, useCallback } from "react"
+import { useEffect, useState } from "react"
+import { useRouter, useSearchParams } from "next/navigation"
 import Link from "next/link"
-import { useRouter } from "next/navigation"
-import { Eye, EyeOff, Mail, Lock, RefreshCw } from "lucide-react"
-import { GamingButton } from "@/components/ui/gaming-button"
-import { GoogleLoginButton } from "@/components/google-login-button"
-import { useAuth } from "@/context/auth-context"
-import { EmergencyAuthBypass } from "@/components/emergency-auth-bypass"
-import { useToast } from "@/components/ui/toast-provider"
-
-// Import the auth cookie utilities
-import { setAuthCookie, getAuthFromCookie } from "@/lib/auth-cookies"
-
-// Add a function to manually set auth data after the imports
-const manuallySetAuthData = (userData: any) => {
-  try {
-    console.log("[Login] Manually setting auth data for user:", userData.id)
-    return setAuthCookie(userData)
-  } catch (err) {
-    console.error("[Login] Error manually setting auth data:", err)
-    return false
-  }
-}
+import GoogleLoginButton from "@/components/google-login-button"
+import { getSupabaseClient } from "@/lib/supabase/client-client"
 
 export default function LoginPage() {
   const [email, setEmail] = useState("")
   const [password, setPassword] = useState("")
-  const [showPassword, setShowPassword] = useState(false)
-  const [isSubmitting, setIsSubmitting] = useState(false)
-  const [formError, setFormError] = useState("")
-  const [sessionChecking, setSessionChecking] = useState(false)
-  const { signIn, user, checkSession, refreshUserSession } = useAuth()
+  const [isLoading, setIsLoading] = useState(false)
+  const [error, setError] = useState<string | null>(null)
+  const [message, setMessage] = useState<string | null>(null)
   const router = useRouter()
-  const [redirectPath, setRedirectPath] = useState("/account")
-  const [sessionCheckCount, setSessionCheckCount] = useState(0)
-  const [bypassEnabled, setBypassEnabled] = useState(false)
-  const { addToast } = useToast()
-  const [initialCheckDone, setInitialCheckDone] = useState(false)
+  const searchParams = useSearchParams()
 
-  // CRITICAL FIX: Check for auth cookie on mount and redirect if found - only once
+  // Get redirectTo from query params
+  const redirectTo = searchParams?.get("redirectTo") || "/account"
+
+  // Handle hash fragment for OAuth responses
   useEffect(() => {
-    if (initialCheckDone) return
+    // Check if we have a hash fragment that contains an access_token (from OAuth)
+    if (typeof window !== "undefined" && window.location.hash) {
+      const hashParams = new URLSearchParams(window.location.hash.substring(1))
+      const accessToken = hashParams.get("access_token")
 
-    const authCookie = getAuthFromCookie()
-    if (authCookie && authCookie.id) {
-      console.log("[Login] Auth cookie found on mount, redirecting to:", redirectPath)
-      router.push(redirectPath)
-    }
-    setInitialCheckDone(true)
-  }, [initialCheckDone, redirectPath, router])
+      if (accessToken) {
+        console.log("[Login] Found access token in URL hash, processing...")
 
-  // Check if there's a redirect path in localStorage or URL - only once on mount
-  useEffect(() => {
-    const storedRedirectPath = localStorage.getItem("redirectAfterLogin")
-    if (storedRedirectPath) {
-      console.log("[Login] Found redirect path in localStorage:", storedRedirectPath)
-      setRedirectPath(storedRedirectPath)
-      localStorage.removeItem("redirectAfterLogin")
-    }
+        // Clear the hash fragment
+        window.history.replaceState(null, "", window.location.pathname + window.location.search)
 
-    // Check for URL params
-    const urlParams = new URLSearchParams(window.location.search)
-    const redirectTo = urlParams.get("redirectTo")
-    if (redirectTo) {
-      console.log("[Login] Found redirectTo in URL:", redirectTo)
-      setRedirectPath(redirectTo)
-    }
+        // Process the token
+        const processToken = async () => {
+          try {
+            const supabase = getSupabaseClient()
 
-    // Check if emergency bypass is enabled
-    const bypass = sessionStorage.getItem("emergency_auth_bypass")
-    if (bypass === "true") {
-      console.log("[Login] Emergency auth bypass is enabled")
-      setBypassEnabled(true)
-    }
-  }, [])
+            // Set the session using the access token
+            const { error } = await supabase.auth.setSession({
+              access_token: accessToken,
+              refresh_token: hashParams.get("refresh_token") || "",
+            })
 
-  // Redirect if already logged in - with user dependency
-  useEffect(() => {
-    if (user) {
-      console.log("[Login] User already logged in, redirecting to:", redirectPath)
+            if (error) {
+              console.error("[Login] Error setting session from hash:", error)
+              setError("Failed to complete authentication. Please try again.")
+            } else {
+              console.log("[Login] Successfully set session from hash")
+              setMessage("Successfully authenticated! Redirecting...")
 
-      // CRITICAL FIX: Ensure the auth cookie is set before redirecting
-      manuallySetAuthData(user)
+              // Get redirect path from localStorage or cookie
+              const redirectPath = localStorage.getItem("redirectAfterLogin") || redirectTo
 
-      router.push(redirectPath)
-    }
-  }, [user, router, redirectPath])
+              // Clear stored redirect
+              localStorage.removeItem("redirectAfterLogin")
 
-  // Check session status on load - only once
-  useEffect(() => {
-    if (sessionCheckCount > 0 || !initialCheckDone) return
-
-    const verifySession = async () => {
-      try {
-        setSessionChecking(true)
-        console.log("[Login] Initial session verification")
-
-        const hasSession = await checkSession()
-
-        if (hasSession) {
-          console.log("[Login] Valid session found, refreshing")
-          await refreshUserSession()
-        } else {
-          console.log("[Login] No valid session found")
-        }
-
-        setSessionCheckCount(1)
-      } catch (err) {
-        console.error("[Login] Error verifying session:", err)
-      } finally {
-        setSessionChecking(false)
-      }
-    }
-
-    verifySession()
-  }, [checkSession, refreshUserSession, sessionCheckCount, initialCheckDone])
-
-  const handleSubmit = useCallback(
-    async (e: React.FormEvent) => {
-      e.preventDefault()
-      setFormError("")
-
-      if (!email || !password) {
-        setFormError("Please fill in all fields")
-        return
-      }
-
-      setIsSubmitting(true)
-
-      try {
-        console.log("[Login] Submitting login form")
-        const { error } = await signIn(email, password)
-        if (error) {
-          console.error("[Login] Sign in error:", error)
-          setFormError(error)
-        } else {
-          console.log("[Login] Sign in successful, will redirect via useEffect")
-          // Force a session check immediately after successful login
-          await checkSession()
-
-          // CRITICAL FIX: Force redirect after successful login
-          if (user) {
-            manuallySetAuthData(user)
-            router.push(redirectPath)
-          } else {
-            // If we don't have a user yet, force a page reload to get fresh state
-            window.location.href = redirectPath
+              // Redirect after a short delay
+              setTimeout(() => {
+                router.push(redirectPath)
+              }, 1000)
+            }
+          } catch (err) {
+            console.error("[Login] Exception processing hash:", err)
+            setError("An unexpected error occurred. Please try again.")
           }
         }
-      } catch (error: any) {
-        console.error("[Login] Exception during sign in:", error)
-        setFormError(error.message || "An error occurred during sign in")
-      } finally {
-        setIsSubmitting(false)
+
+        processToken()
       }
-    },
-    [email, password, signIn, checkSession, user, router, redirectPath],
-  )
+    }
 
-  const handleSessionCheck = useCallback(async () => {
-    setSessionChecking(true)
+    // Check for error in query params
+    const errorParam = searchParams?.get("error")
+    const errorDescription = searchParams?.get("error_description")
+
+    if (errorParam) {
+      setError(`Authentication error: ${errorDescription || errorParam}`)
+    }
+  }, [router, redirectTo, searchParams])
+
+  const handleLogin = async (e: React.FormEvent) => {
+    e.preventDefault()
+    setIsLoading(true)
+    setError(null)
+
     try {
-      console.log("[Login] Manual session check")
-      await checkSession()
+      const supabase = getSupabaseClient()
+      const { error } = await supabase.auth.signInWithPassword({
+        email,
+        password,
+      })
+
+      if (error) {
+        setError(error.message)
+      } else {
+        // Store the redirect path
+        if (redirectTo) {
+          localStorage.setItem("redirectAfterLogin", redirectTo)
+        }
+
+        router.push(redirectTo)
+      }
     } catch (err) {
-      console.error("[Login] Error in manual session check:", err)
+      setError("Failed to sign in. Please try again.")
     } finally {
-      setSessionChecking(false)
+      setIsLoading(false)
     }
-  }, [checkSession])
-
-  const handleSessionRefresh = useCallback(async () => {
-    setSessionChecking(true)
-    try {
-      console.log("[Login] Manual session refresh")
-      await refreshUserSession()
-    } catch (err) {
-      console.error("[Login] Error in manual session refresh:", err)
-    } finally {
-      setSessionChecking(false)
-    }
-  }, [refreshUserSession])
-
-  const handleForceRedirect = useCallback(() => {
-    console.log("[Login] Forcing redirect to:", redirectPath)
-
-    // If we have user data, set the auth cookie
-    if (user) {
-      manuallySetAuthData(user)
-    }
-
-    // Set emergency bypass flag
-    sessionStorage.setItem("emergency_auth_bypass", "true")
-    document.cookie = "emergency_auth_bypass=true; path=/; max-age=300" // 5 minutes
-
-    // Force navigation
-    window.location.href = redirectPath
-  }, [redirectPath, user])
-
-  const handleEnableBypass = useCallback(() => {
-    console.log("[Login] Enabling emergency auth bypass")
-    sessionStorage.setItem("emergency_auth_bypass", "true")
-    document.cookie = "emergency_auth_bypass=true; path=/; max-age=300" // 5 minutes
-    setBypassEnabled(true)
-  }, [])
+  }
 
   return (
-    <div className="mx-auto max-w-md px-4 py-8">
-      {/* Add the emergency auth bypass component */}
-      <EmergencyAuthBypass />
-
-      <div className="rounded-lg border border-border bg-card p-8 shadow-lg">
-        <div className="mb-6 text-center">
-          <h1 className="text-2xl font-bold text-white">Sign In</h1>
-          <p className="mt-2 text-gray-400">Welcome back! Please sign in to your account.</p>
-          {bypassEnabled && (
-            <div className="mt-2 rounded-md bg-green-500/10 p-1 text-xs text-green-500">
-              Emergency bypass mode enabled
-            </div>
-          )}
+    <div className="flex min-h-screen flex-col items-center justify-center py-12 px-4 sm:px-6 lg:px-8">
+      <div className="w-full max-w-md space-y-8">
+        <div>
+          <h2 className="mt-6 text-center text-3xl font-bold tracking-tight">Sign in to your account</h2>
         </div>
 
-        {formError && (
-          <div className="mb-6 rounded-md border border-red-500/20 bg-red-500/10 p-4 text-sm text-red-500">
-            {formError}
+        {error && (
+          <div className="rounded-md bg-red-50 p-4">
+            <div className="text-sm text-red-700">{error}</div>
           </div>
         )}
 
-        <form onSubmit={handleSubmit} className="space-y-4">
-          <div>
-            <label htmlFor="email" className="mb-2 block text-sm font-medium text-gray-400">
-              Email
-            </label>
-            <div className="relative">
-              <div className="pointer-events-none absolute inset-y-0 left-0 flex items-center pl-3">
-                <Mail className="h-5 w-5 text-gray-500" />
-              </div>
+        {message && (
+          <div className="rounded-md bg-green-50 p-4">
+            <div className="text-sm text-green-700">{message}</div>
+          </div>
+        )}
+
+        <form className="mt-8 space-y-6" onSubmit={handleLogin}>
+          <div className="-space-y-px rounded-md shadow-sm">
+            <div>
+              <label htmlFor="email-address" className="sr-only">
+                Email address
+              </label>
               <input
-                id="email"
+                id="email-address"
+                name="email"
                 type="email"
+                autoComplete="email"
+                required
+                className="relative block w-full rounded-t-md border-0 py-1.5 px-3 text-gray-900 ring-1 ring-inset ring-gray-300 placeholder:text-gray-400 focus:z-10 focus:ring-2 focus:ring-inset focus:ring-indigo-600 sm:text-sm sm:leading-6"
+                placeholder="Email address"
                 value={email}
                 onChange={(e) => setEmail(e.target.value)}
-                className="block w-full rounded-md border border-border bg-background py-2 pl-10 pr-3 text-white placeholder-gray-500 focus:border-amber-500 focus:outline-none focus:ring-1 focus:ring-amber-500"
-                placeholder="Enter your email"
+                disabled={isLoading}
+              />
+            </div>
+            <div>
+              <label htmlFor="password" className="sr-only">
+                Password
+              </label>
+              <input
+                id="password"
+                name="password"
+                type="password"
+                autoComplete="current-password"
                 required
+                className="relative block w-full rounded-b-md border-0 py-1.5 px-3 text-gray-900 ring-1 ring-inset ring-gray-300 placeholder:text-gray-400 focus:z-10 focus:ring-2 focus:ring-inset focus:ring-indigo-600 sm:text-sm sm:leading-6"
+                placeholder="Password"
+                value={password}
+                onChange={(e) => setPassword(e.target.value)}
+                disabled={isLoading}
               />
             </div>
           </div>
 
           <div>
-            <label htmlFor="password" className="mb-2 block text-sm font-medium text-gray-400">
-              Password
-            </label>
-            <div className="relative">
-              <div className="pointer-events-none absolute inset-y-0 left-0 flex items-center pl-3">
-                <Lock className="h-5 w-5 text-gray-500" />
-              </div>
-              <input
-                id="password"
-                type={showPassword ? "text" : "password"}
-                value={password}
-                onChange={(e) => setPassword(e.target.value)}
-                className="block w-full rounded-md border border-border bg-background py-2 pl-10 pr-10 text-white placeholder-gray-500 focus:border-amber-500 focus:outline-none focus:ring-1 focus:ring-amber-500"
-                placeholder="Enter your password"
-                required
-              />
-              <button
-                type="button"
-                className="absolute inset-y-0 right-0 flex items-center pr-3 text-gray-500 hover:text-amber-500"
-                onClick={() => setShowPassword(!showPassword)}
-              >
-                {showPassword ? <EyeOff className="h-5 w-5" /> : <Eye className="h-5 w-5" />}
-              </button>
-            </div>
+            <button
+              type="submit"
+              disabled={isLoading}
+              className="group relative flex w-full justify-center rounded-md bg-indigo-600 py-2 px-3 text-sm font-semibold text-white hover:bg-indigo-500 focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-indigo-600 disabled:opacity-70"
+            >
+              {isLoading ? "Signing in..." : "Sign in"}
+            </button>
           </div>
 
           <div className="flex items-center justify-between">
-            <div className="flex items-center">
-              <input
-                id="remember-me"
-                type="checkbox"
-                className="h-4 w-4 rounded border-border bg-background text-amber-500 focus:ring-amber-500"
-              />
-              <label htmlFor="remember-me" className="ml-2 block text-sm text-gray-400">
-                Remember me
-              </label>
+            <div className="text-sm">
+              <Link href="/account/signup" className="font-medium text-indigo-600 hover:text-indigo-500">
+                Don't have an account? Sign up
+              </Link>
             </div>
-            <Link href="/account/forgot-password" className="text-sm text-amber-500 hover:text-amber-400">
-              Forgot password?
-            </Link>
           </div>
-
-          <GamingButton type="submit" variant="amber" className="w-full" disabled={isSubmitting}>
-            {isSubmitting ? (
-              <span className="flex items-center justify-center">
-                <span className="mr-2 h-4 w-4 animate-spin rounded-full border-2 border-white border-t-transparent"></span>
-                Signing in...
-              </span>
-            ) : (
-              "Sign In"
-            )}
-          </GamingButton>
         </form>
-
-        <div className="mt-4 flex flex-wrap justify-center gap-2">
-          <button
-            onClick={handleSessionCheck}
-            disabled={sessionChecking}
-            className="flex items-center text-xs text-amber-500 hover:text-amber-400"
-          >
-            {sessionChecking ? (
-              <RefreshCw className="mr-1 h-3 w-3 animate-spin" />
-            ) : (
-              <RefreshCw className="mr-1 h-3 w-3" />
-            )}
-            Check Session
-          </button>
-          <span className="text-gray-500">|</span>
-          <button
-            onClick={handleSessionRefresh}
-            disabled={sessionChecking}
-            className="flex items-center text-xs text-amber-500 hover:text-amber-400"
-          >
-            {sessionChecking ? (
-              <RefreshCw className="mr-1 h-3 w-3 animate-spin" />
-            ) : (
-              <RefreshCw className="mr-1 h-3 w-3" />
-            )}
-            Refresh Session
-          </button>
-          <span className="text-gray-500">|</span>
-          <button
-            onClick={handleForceRedirect}
-            className="flex items-center text-xs text-amber-500 hover:text-amber-400"
-          >
-            Force Redirect
-          </button>
-          <span className="text-gray-500">|</span>
-          <button
-            onClick={handleEnableBypass}
-            className="flex items-center text-xs text-amber-500 hover:text-amber-400"
-          >
-            Enable Bypass
-          </button>
-          <span className="text-gray-500">|</span>
-          <button
-            onClick={() => {
-              if (user) {
-                const success = manuallySetAuthData(user)
-                if (success) {
-                  addToast({
-                    title: "Auth cookie set",
-                    description: "Auth cookie has been manually set",
-                    type: "success",
-                  })
-                }
-              } else {
-                addToast({
-                  title: "No user data",
-                  description: "No user data available to set cookie",
-                  type: "error",
-                })
-              }
-            }}
-            className="flex items-center text-xs text-amber-500 hover:text-amber-400"
-          >
-            Set Auth Cookie
-          </button>
-        </div>
 
         <div className="mt-6">
           <div className="relative">
             <div className="absolute inset-0 flex items-center">
-              <div className="w-full border-t border-border"></div>
+              <div className="w-full border-t border-gray-300" />
             </div>
             <div className="relative flex justify-center text-sm">
-              <span className="bg-card px-2 text-gray-400">Or continue with</span>
+              <span className="bg-white px-2 text-gray-500">Or continue with</span>
             </div>
           </div>
 
           <div className="mt-6">
-            <GoogleLoginButton />
+            <GoogleLoginButton redirectTo={redirectTo} />
           </div>
-        </div>
-
-        <div className="mt-6 text-center text-sm text-gray-400">
-          Don't have an account?{" "}
-          <Link href="/account/signup" className="font-medium text-amber-500 hover:text-amber-400">
-            Sign up
-          </Link>
         </div>
       </div>
     </div>

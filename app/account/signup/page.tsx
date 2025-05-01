@@ -2,217 +2,226 @@
 
 import type React from "react"
 
-import { useState, useEffect } from "react"
+import { useEffect, useState } from "react"
+import { useRouter, useSearchParams } from "next/navigation"
 import Link from "next/link"
-import { useRouter } from "next/navigation"
-import { Eye, EyeOff, Mail, Lock, User } from "lucide-react"
-import { GamingButton } from "@/components/ui/gaming-button"
-import { GoogleLoginButton } from "@/components/google-login-button"
-import { useAuth } from "@/context/auth-context"
+import GoogleLoginButton from "@/components/google-login-button"
+import { getSupabaseClient } from "@/lib/supabase/client-client"
 
 export default function SignupPage() {
-  const [fullName, setFullName] = useState("")
   const [email, setEmail] = useState("")
   const [password, setPassword] = useState("")
-  const [showPassword, setShowPassword] = useState(false)
-  const [isSubmitting, setIsSubmitting] = useState(false)
-  const [formError, setFormError] = useState("")
-  const { signUp, user } = useAuth()
+  const [fullName, setFullName] = useState("")
+  const [isLoading, setIsLoading] = useState(false)
+  const [error, setError] = useState<string | null>(null)
+  const [message, setMessage] = useState<string | null>(null)
   const router = useRouter()
-  const [redirectPath, setRedirectPath] = useState("/account")
+  const searchParams = useSearchParams()
 
-  // Check if there's a redirect path in cookies
+  // Get redirectTo from query params
+  const redirectTo = searchParams?.get("redirectTo") || "/account"
+
+  // Handle hash fragment for OAuth responses
   useEffect(() => {
-    const getCookie = (name: string) => {
-      const value = `; ${document.cookie}`
-      const parts = value.split(`; ${name}=`)
-      if (parts.length === 2) return parts.pop()?.split(";").shift()
-      return null
+    // Check if we have a hash fragment that contains an access_token (from OAuth)
+    if (typeof window !== "undefined" && window.location.hash) {
+      const hashParams = new URLSearchParams(window.location.hash.substring(1))
+      const accessToken = hashParams.get("access_token")
+
+      if (accessToken) {
+        console.log("[Signup] Found access token in URL hash, processing...")
+
+        // Clear the hash fragment
+        window.history.replaceState(null, "", window.location.pathname + window.location.search)
+
+        // Process the token
+        const processToken = async () => {
+          try {
+            const supabase = getSupabaseClient()
+
+            // Set the session using the access token
+            const { error } = await supabase.auth.setSession({
+              access_token: accessToken,
+              refresh_token: hashParams.get("refresh_token") || "",
+            })
+
+            if (error) {
+              console.error("[Signup] Error setting session from hash:", error)
+              setError("Failed to complete authentication. Please try again.")
+            } else {
+              console.log("[Signup] Successfully set session from hash")
+              setMessage("Successfully authenticated! Redirecting...")
+
+              // Get redirect path from localStorage or cookie
+              const redirectPath = localStorage.getItem("redirectAfterLogin") || redirectTo
+
+              // Clear stored redirect
+              localStorage.removeItem("redirectAfterLogin")
+
+              // Redirect after a short delay
+              setTimeout(() => {
+                router.push(redirectPath)
+              }, 1000)
+            }
+          } catch (err) {
+            console.error("[Signup] Exception processing hash:", err)
+            setError("An unexpected error occurred. Please try again.")
+          }
+        }
+
+        processToken()
+      }
     }
 
-    const storedRedirectPath = getCookie("redirectAfterLogin")
-    if (storedRedirectPath) {
-      setRedirectPath(storedRedirectPath)
-      // Clear the cookie
-      document.cookie = "redirectAfterLogin=; path=/; expires=Thu, 01 Jan 1970 00:00:00 GMT"
-    }
-  }, [])
+    // Check for error in query params
+    const errorParam = searchParams?.get("error")
+    const errorDescription = searchParams?.get("error_description")
 
-  // Redirect if already logged in
-  useEffect(() => {
-    if (user) {
-      router.push(redirectPath)
+    if (errorParam) {
+      setError(`Authentication error: ${errorDescription || errorParam}`)
     }
-  }, [user, router, redirectPath])
+  }, [router, redirectTo, searchParams])
 
-  const handleSubmit = async (e: React.FormEvent) => {
+  const handleSignup = async (e: React.FormEvent) => {
     e.preventDefault()
-    setFormError("")
-
-    if (!fullName || !email || !password) {
-      setFormError("Please fill in all fields")
-      return
-    }
-
-    if (password.length < 6) {
-      setFormError("Password must be at least 6 characters long")
-      return
-    }
-
-    setIsSubmitting(true)
+    setIsLoading(true)
+    setError(null)
 
     try {
-      // Use the auth context's signUp method instead of direct API call
-      const { error } = await signUp(email, password, fullName)
+      const supabase = getSupabaseClient()
+      const { error } = await supabase.auth.signUp({
+        email,
+        password,
+        options: {
+          data: {
+            full_name: fullName,
+          },
+        },
+      })
 
       if (error) {
-        setFormError(error)
+        setError(error.message)
       } else {
-        // Redirect to login page with success message
-        router.push("/account/login?message=Account created successfully. Please log in.")
+        setMessage("Check your email for the confirmation link.")
+
+        // Store the redirect path
+        if (redirectTo) {
+          localStorage.setItem("redirectAfterLogin", redirectTo)
+        }
       }
-    } catch (error: any) {
-      console.error("Signup error:", error)
-      setFormError(error.message || "An error occurred during sign up")
+    } catch (err) {
+      setError("Failed to sign up. Please try again.")
     } finally {
-      setIsSubmitting(false)
+      setIsLoading(false)
     }
   }
 
   return (
-    <div className="mx-auto max-w-md px-4 py-8">
-      <div className="rounded-lg border border-border bg-card p-8 shadow-lg">
-        <div className="mb-6 text-center">
-          <h1 className="text-2xl font-bold text-white">Create Account</h1>
-          <p className="mt-2 text-gray-400">Join TurGame to start shopping for digital products.</p>
+    <div className="flex min-h-screen flex-col items-center justify-center py-12 px-4 sm:px-6 lg:px-8">
+      <div className="w-full max-w-md space-y-8">
+        <div>
+          <h2 className="mt-6 text-center text-3xl font-bold tracking-tight">Create your account</h2>
         </div>
 
-        {formError && (
-          <div className="mb-6 rounded-md border border-red-500/20 bg-red-500/10 p-4 text-sm text-red-500">
-            {formError}
+        {error && (
+          <div className="rounded-md bg-red-50 p-4">
+            <div className="text-sm text-red-700">{error}</div>
           </div>
         )}
 
-        <form onSubmit={handleSubmit} className="space-y-4">
-          <div>
-            <label htmlFor="fullName" className="mb-2 block text-sm font-medium text-gray-400">
-              Full Name
-            </label>
-            <div className="relative">
-              <div className="pointer-events-none absolute inset-y-0 left-0 flex items-center pl-3">
-                <User className="h-5 w-5 text-gray-500" />
-              </div>
+        {message && (
+          <div className="rounded-md bg-green-50 p-4">
+            <div className="text-sm text-green-700">{message}</div>
+          </div>
+        )}
+
+        <form className="mt-8 space-y-6" onSubmit={handleSignup}>
+          <div className="-space-y-px rounded-md shadow-sm">
+            <div>
+              <label htmlFor="full-name" className="sr-only">
+                Full name
+              </label>
               <input
-                id="fullName"
+                id="full-name"
+                name="fullName"
                 type="text"
+                autoComplete="name"
+                required
+                className="relative block w-full rounded-t-md border-0 py-1.5 px-3 text-gray-900 ring-1 ring-inset ring-gray-300 placeholder:text-gray-400 focus:z-10 focus:ring-2 focus:ring-inset focus:ring-indigo-600 sm:text-sm sm:leading-6"
+                placeholder="Full name"
                 value={fullName}
                 onChange={(e) => setFullName(e.target.value)}
-                className="block w-full rounded-md border border-border bg-background py-2 pl-10 pr-3 text-white placeholder-gray-500 focus:border-amber-500 focus:outline-none focus:ring-1 focus:ring-amber-500"
-                placeholder="Enter your full name"
-                required
+                disabled={isLoading}
               />
             </div>
-          </div>
-
-          <div>
-            <label htmlFor="email" className="mb-2 block text-sm font-medium text-gray-400">
-              Email
-            </label>
-            <div className="relative">
-              <div className="pointer-events-none absolute inset-y-0 left-0 flex items-center pl-3">
-                <Mail className="h-5 w-5 text-gray-500" />
-              </div>
+            <div>
+              <label htmlFor="email-address" className="sr-only">
+                Email address
+              </label>
               <input
-                id="email"
+                id="email-address"
+                name="email"
                 type="email"
+                autoComplete="email"
+                required
+                className="relative block w-full border-0 py-1.5 px-3 text-gray-900 ring-1 ring-inset ring-gray-300 placeholder:text-gray-400 focus:z-10 focus:ring-2 focus:ring-inset focus:ring-indigo-600 sm:text-sm sm:leading-6"
+                placeholder="Email address"
                 value={email}
                 onChange={(e) => setEmail(e.target.value)}
-                className="block w-full rounded-md border border-border bg-background py-2 pl-10 pr-3 text-white placeholder-gray-500 focus:border-amber-500 focus:outline-none focus:ring-1 focus:ring-amber-500"
-                placeholder="Enter your email"
+                disabled={isLoading}
+              />
+            </div>
+            <div>
+              <label htmlFor="password" className="sr-only">
+                Password
+              </label>
+              <input
+                id="password"
+                name="password"
+                type="password"
+                autoComplete="new-password"
                 required
+                className="relative block w-full rounded-b-md border-0 py-1.5 px-3 text-gray-900 ring-1 ring-inset ring-gray-300 placeholder:text-gray-400 focus:z-10 focus:ring-2 focus:ring-inset focus:ring-indigo-600 sm:text-sm sm:leading-6"
+                placeholder="Password"
+                value={password}
+                onChange={(e) => setPassword(e.target.value)}
+                disabled={isLoading}
               />
             </div>
           </div>
 
           <div>
-            <label htmlFor="password" className="mb-2 block text-sm font-medium text-gray-400">
-              Password
-            </label>
-            <div className="relative">
-              <div className="pointer-events-none absolute inset-y-0 left-0 flex items-center pl-3">
-                <Lock className="h-5 w-5 text-gray-500" />
-              </div>
-              <input
-                id="password"
-                type={showPassword ? "text" : "password"}
-                value={password}
-                onChange={(e) => setPassword(e.target.value)}
-                className="block w-full rounded-md border border-border bg-background py-2 pl-10 pr-10 text-white placeholder-gray-500 focus:border-amber-500 focus:outline-none focus:ring-1 focus:ring-amber-500"
-                placeholder="Create a password"
-                required
-              />
-              <button
-                type="button"
-                className="absolute inset-y-0 right-0 flex items-center pr-3 text-gray-500 hover:text-amber-500"
-                onClick={() => setShowPassword(!showPassword)}
-              >
-                {showPassword ? <EyeOff className="h-5 w-5" /> : <Eye className="h-5 w-5" />}
-              </button>
-            </div>
-            <p className="mt-1 text-xs text-gray-400">Password must be at least 6 characters long</p>
+            <button
+              type="submit"
+              disabled={isLoading}
+              className="group relative flex w-full justify-center rounded-md bg-indigo-600 py-2 px-3 text-sm font-semibold text-white hover:bg-indigo-500 focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-indigo-600 disabled:opacity-70"
+            >
+              {isLoading ? "Creating account..." : "Sign up"}
+            </button>
           </div>
 
-          <div className="flex items-center">
-            <input
-              id="terms"
-              type="checkbox"
-              className="h-4 w-4 rounded border-border bg-background text-amber-500 focus:ring-amber-500"
-              required
-            />
-            <label htmlFor="terms" className="ml-2 block text-sm text-gray-400">
-              I agree to the{" "}
-              <Link href="/legal/terms-of-service" className="text-amber-500 hover:text-amber-400">
-                Terms of Service
-              </Link>{" "}
-              and{" "}
-              <Link href="/legal/privacy-policy" className="text-amber-500 hover:text-amber-400">
-                Privacy Policy
+          <div className="flex items-center justify-between">
+            <div className="text-sm">
+              <Link href="/account/login" className="font-medium text-indigo-600 hover:text-indigo-500">
+                Already have an account? Sign in
               </Link>
-            </label>
+            </div>
           </div>
-
-          <GamingButton type="submit" variant="amber" className="w-full" disabled={isSubmitting}>
-            {isSubmitting ? (
-              <span className="flex items-center justify-center">
-                <span className="mr-2 h-4 w-4 animate-spin rounded-full border-2 border-white border-t-transparent"></span>
-                Creating account...
-              </span>
-            ) : (
-              "Create Account"
-            )}
-          </GamingButton>
         </form>
 
         <div className="mt-6">
           <div className="relative">
             <div className="absolute inset-0 flex items-center">
-              <div className="w-full border-t border-border"></div>
+              <div className="w-full border-t border-gray-300" />
             </div>
             <div className="relative flex justify-center text-sm">
-              <span className="bg-card px-2 text-gray-400">Or continue with</span>
+              <span className="bg-white px-2 text-gray-500">Or continue with</span>
             </div>
           </div>
 
           <div className="mt-6">
-            <GoogleLoginButton />
+            <GoogleLoginButton mode="signup" redirectTo={redirectTo} />
           </div>
-        </div>
-
-        <div className="mt-6 text-center text-sm text-gray-400">
-          Already have an account?{" "}
-          <Link href="/account/login" className="font-medium text-amber-500 hover:text-amber-400">
-            Sign in
-          </Link>
         </div>
       </div>
     </div>

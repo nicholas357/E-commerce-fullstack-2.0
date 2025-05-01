@@ -94,6 +94,24 @@ export async function middleware(req: NextRequest) {
     }
   }
 
+  // Handle auth return path for OAuth
+  if (req.nextUrl.pathname === "/auth/callback") {
+    // Get the return path from localStorage via a cookie
+    const authReturnPath = req.cookies.get("authReturnPath")?.value || req.cookies.get("redirectAfterLogin")?.value
+
+    if (authReturnPath) {
+      // Set a cookie that the callback route can access
+      const response = NextResponse.next()
+      response.cookies.set("authReturnPath", authReturnPath, {
+        path: "/",
+        maxAge: 3600,
+        httpOnly: true,
+        secure: process.env.NODE_ENV === "production",
+      })
+      return response
+    }
+  }
+
   // Create the Supabase middleware client
   const supabase = createMiddlewareClient(
     { req, res },

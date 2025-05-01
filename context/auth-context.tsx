@@ -643,10 +643,21 @@ export function AuthProvider({ children }: { children: ReactNode }) {
       setIsLoading(true)
       setError(null)
 
-      const { error } = await supabase.auth.signInWithOAuth({
+      // Store the current URL for returning after auth
+      const currentPath = window.location.pathname
+      localStorage.setItem("authReturnPath", currentPath)
+
+      // Get a fresh client for OAuth
+      const freshClient = createClient()
+
+      const { data, error } = await freshClient.auth.signInWithOAuth({
         provider: "google",
         options: {
           redirectTo: `${window.location.origin}/auth/callback`,
+          queryParams: {
+            access_type: "offline",
+            prompt: "consent",
+          },
         },
       })
 
@@ -655,17 +666,36 @@ export function AuthProvider({ children }: { children: ReactNode }) {
         throw error
       }
 
-      console.log("[Auth] Google sign in initiated")
+      console.log("[Auth] Google sign in initiated", data)
       return {}
     } catch (err: any) {
       console.error("[Auth] Error signing in with Google:", err)
+
+      // Check if this is a connection error
+      if (
+        err instanceof Error &&
+        (err.message.includes("Failed to fetch") ||
+          err.message.includes("NetworkError") ||
+          err.message.includes("network") ||
+          err.message.includes("connection"))
+      ) {
+        console.log("[Auth] Detected connection issue during Google sign in, resetting client...")
+        // Import and use the resetClient function
+        const { resetClient } = await import("@/lib/supabase/client-client")
+        resetClient()
+
+        const errorMessage = "Connection issue detected. Please try again."
+        setError(errorMessage)
+        return { error: errorMessage }
+      }
+
       const errorMessage = err.message || "Failed to sign in with Google. Please try again."
       setError(errorMessage)
       return { error: errorMessage }
     } finally {
       setIsLoading(false)
     }
-  }, [supabase])
+  }, [setError, setIsLoading])
 
   // Sign out
   const signOut = useCallback(async () => {
