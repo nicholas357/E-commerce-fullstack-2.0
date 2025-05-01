@@ -62,12 +62,14 @@
     "@supabase/supabase-js": "latest",
     "framer-motion": "latest",
     "firebase": "latest",
+    "https:": "latest",
     "uuid": "latest",
     "js-cookie": "latest",
     "@supabase/ssr": "latest",
     "cookie": "latest",
     "@supabase/auth-helpers-react": "latest",
-    "@supabase/auth-helpers-nextjs": "latest"
+    "@supabase/auth-helpers-nextjs": "latest",
+    "react-icons": "latest"
   },
   "devDependencies": {
     "@types/node": "^22",

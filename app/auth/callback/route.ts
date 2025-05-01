@@ -21,6 +21,8 @@ export async function GET(request: NextRequest) {
     )
   }
 
+  let redirectPath = "/account"
+
   if (code) {
     try {
       const supabase = createRouteHandlerClient({ cookies })
@@ -34,6 +36,19 @@ export async function GET(request: NextRequest) {
       }
 
       console.log("[Auth Callback] Successfully exchanged code for session")
+
+      // Check for a stored return path
+      const cookieStore = cookies()
+      const returnPathCookie = cookieStore.get("authReturnPath")
+
+      if (returnPathCookie?.value) {
+        redirectPath = returnPathCookie.value
+        // Clear the cookie
+        cookies().set("authReturnPath", "", { maxAge: 0 })
+      }
+
+      // Add a success parameter to trigger client-side refresh
+      return NextResponse.redirect(new URL(`${redirectPath}?auth_success=true&timestamp=${Date.now()}`, request.url))
     } catch (err) {
       console.error("[Auth Callback] Exception during code exchange:", err)
       return NextResponse.redirect(
@@ -42,19 +57,8 @@ export async function GET(request: NextRequest) {
     }
   } else {
     console.error("[Auth Callback] No code provided in callback")
+    return NextResponse.redirect(
+      new URL(`/account/login?error=no_code&error_description=No authentication code received`, request.url),
+    )
   }
-
-  // Check for a stored return path
-  const cookieStore = cookies()
-  const returnPathCookie = cookieStore.get("authReturnPath")
-  let redirectPath = "/account"
-
-  if (returnPathCookie?.value) {
-    redirectPath = returnPathCookie.value
-    // Clear the cookie
-    cookies().set("authReturnPath", "", { maxAge: 0 })
-  }
-
-  // URL to redirect to after sign in process completes
-  return NextResponse.redirect(new URL(redirectPath, request.url))
 }

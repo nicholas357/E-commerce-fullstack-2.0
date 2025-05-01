@@ -4,13 +4,14 @@ import type React from "react"
 
 import { useState, useEffect, useCallback } from "react"
 import Link from "next/link"
-import { useRouter } from "next/navigation"
+import { useRouter, useSearchParams } from "next/navigation"
 import { Eye, EyeOff, Mail, Lock, RefreshCw } from "lucide-react"
 import { GamingButton } from "@/components/ui/gaming-button"
 import { GoogleLoginButton } from "@/components/google-login-button"
 import { useAuth } from "@/context/auth-context"
 import { EmergencyAuthBypass } from "@/components/emergency-auth-bypass"
 import { useToast } from "@/components/ui/toast-provider"
+import { AuthSuccessHandler } from "@/components/auth-success-handler"
 
 // Import the auth cookie utilities
 import { setAuthCookie, getAuthFromCookie } from "@/lib/auth-cookies"
@@ -35,18 +36,52 @@ export default function LoginPage() {
   const [sessionChecking, setSessionChecking] = useState(false)
   const { signIn, user, checkSession, refreshUserSession } = useAuth()
   const router = useRouter()
+  const searchParams = useSearchParams()
   const [redirectPath, setRedirectPath] = useState("/account")
   const [sessionCheckCount, setSessionCheckCount] = useState(0)
   const [bypassEnabled, setBypassEnabled] = useState(false)
   const { addToast } = useToast()
   const [initialCheckDone, setInitialCheckDone] = useState(false)
 
+  // Check for OAuth success on mount
+  useEffect(() => {
+    const authSuccess = searchParams.get("auth_success")
+
+    if (authSuccess === "true") {
+      console.log("[Login] Detected successful authentication, refreshing session")
+
+      // Remove the query parameters
+      const newUrl = window.location.pathname
+      window.history.replaceState({}, document.title, newUrl)
+
+      // Force session refresh and redirect
+      const refreshAndRedirect = async () => {
+        try {
+          await refreshUserSession()
+
+          // Get the redirect path
+          const storedRedirectPath = localStorage.getItem("authReturnPath") || "/account"
+
+          // Redirect to the appropriate page
+          console.log("[Login] Redirecting after OAuth success to:", storedRedirectPath)
+          router.push(storedRedirectPath)
+        } catch (err) {
+          console.error("[Login] Error refreshing session after OAuth:", err)
+
+          // Force a page reload as a fallback
+          window.location.reload()
+        }
+      }
+
+      refreshAndRedirect()
+    }
+  }, [searchParams, refreshUserSession, router])
+
   // Check for OAuth errors on mount
   useEffect(() => {
-    const urlParams = new URLSearchParams(window.location.search)
-    const error = urlParams.get("error")
-    const errorDescription = urlParams.get("error_description")
-    const message = urlParams.get("message")
+    const error = searchParams.get("error")
+    const errorDescription = searchParams.get("error_description")
+    const message = searchParams.get("message")
 
     if (error) {
       console.error("[Login] OAuth error detected:", error, errorDescription)
@@ -73,7 +108,7 @@ export default function LoginPage() {
       localStorage.setItem("authReturnPath", window.location.pathname)
       document.cookie = `authReturnPath=${window.location.pathname}; path=/; max-age=3600`
     }
-  }, [addToast])
+  }, [addToast, searchParams])
 
   // CRITICAL FIX: Check for auth cookie on mount and redirect if found - only once
   useEffect(() => {
@@ -97,8 +132,7 @@ export default function LoginPage() {
     }
 
     // Check for URL params
-    const urlParams = new URLSearchParams(window.location.search)
-    const redirectTo = urlParams.get("redirectTo")
+    const redirectTo = searchParams.get("redirectTo")
     if (redirectTo) {
       console.log("[Login] Found redirectTo in URL:", redirectTo)
       setRedirectPath(redirectTo)
@@ -110,7 +144,7 @@ export default function LoginPage() {
       console.log("[Login] Emergency auth bypass is enabled")
       setBypassEnabled(true)
     }
-  }, [])
+  }, [searchParams])
 
   // Redirect if already logged in - with user dependency
   useEffect(() => {
@@ -244,6 +278,9 @@ export default function LoginPage() {
 
   return (
     <div className="mx-auto max-w-md px-4 py-8">
+      {/* Add the auth success handler */}
+      <AuthSuccessHandler />
+
       {/* Add the emergency auth bypass component */}
       <EmergencyAuthBypass />
 
